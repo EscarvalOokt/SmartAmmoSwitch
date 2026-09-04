@@ -1,0 +1,22 @@
+<Project>
+    <PropertyGroup>
+        <!--
+        Set this to the root directory of your local Terraria installation.
+        Example:
+        E:\SteamLibrary\steamapps\common\Terraria
+        -->
+        <TerrariaDirectory>C:\Path\To\Terraria</TerrariaDirectory>
+
+        <!--
+        Path to Microsoft.Xna.Framework.Game.dll used to compile against Terraria.
+        This is a common Windows GAC location; update it if your installation differs.
+        -->
+        <XnaFrameworkGameDll>C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework.Game\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.Game.dll</XnaFrameworkGameDll>
+
+        <!-- Enable automatic deployment after a successful build when desired. -->
+        <DeployToGame>false</DeployToGame>
+
+        <!-- Development deployment directory used when DeployToGame is true. -->
+        <TerrariaModDirectory>$(TerrariaDirectory)\TerrariaModder\mods\smart-ammo-switch</TerrariaModDirectory>
+    </PropertyGroup>
+</Project>

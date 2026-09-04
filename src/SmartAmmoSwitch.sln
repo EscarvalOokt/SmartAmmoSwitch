@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36310.24
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartAmmoSwitch", "SmartAmmoSwitch\SmartAmmoSwitch.csproj", "{62F24044-5A43-4F1D-9496-E4623A8A3DB2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartAmmoSwitch.Tests", "..\tests\SmartAmmoSwitch.Tests\SmartAmmoSwitch.Tests.csproj", "{D3B8B44F-6B9E-4F90-8328-DCB33462C84B}"
+EndProject
+Global
+    GlobalSection(SolutionConfigurationPlatforms) = preSolution
+        Debug|Any CPU = Debug|Any CPU
+        Release|Any CPU = Release|Any CPU
+    EndGlobalSection
+    GlobalSection(ProjectConfigurationPlatforms) = postSolution
+        {62F24044-5A43-4F1D-9496-E4623A8A3DB2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {62F24044-5A43-4F1D-9496-E4623A8A3DB2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {62F24044-5A43-4F1D-9496-E4623A8A3DB2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {62F24044-5A43-4F1D-9496-E4623A8A3DB2}.Release|Any CPU.Build.0 = Release|Any CPU
+        {D3B8B44F-6B9E-4F90-8328-DCB33462C84B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {D3B8B44F-6B9E-4F90-8328-DCB33462C84B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {D3B8B44F-6B9E-4F90-8328-DCB33462C84B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {D3B8B44F-6B9E-4F90-8328-DCB33462C84B}.Release|Any CPU.Build.0 = Release|Any CPU
+    EndGlobalSection
+EndGlobal

@@ -1,0 +1,55 @@
+# IDEs and editor state
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.sln.iml
+*.DotSettings.user
+
+# Build output
+**/bin/
+**/obj/
+artifacts/
+build/
+TestResults/
+*.binlog
+*.trx
+
+# Test and coverage output
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+
+# NuGet local/package output
+packages/
+*.nupkg
+*.snupkg
+
+# Local and release documentation
+docs/local/
+docs/release/
+
+# Local machine configuration
+src/SmartAmmoSwitch.Local.props
+
+# Generated/staged mod assemblies
+mod/*.dll
+mod/*.pdb
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary, backup and patch files
+*.tmp
+*.temp
+*.log
+*.bak
+*.orig
+*.rej
+*~

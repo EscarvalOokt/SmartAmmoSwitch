@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <RootNamespace>SmartAmmoSwitch</RootNamespace>
+        <AssemblyName>SmartAmmoSwitch</AssemblyName>
+        <OutputType>Library</OutputType>
+        <LangVersion>latest</LangVersion>
+        <Nullable>disable</Nullable>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+        <Version>1.1.0</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="SmartAmmoSwitch.Tests"/>
+    </ItemGroup>
+
+    <Import Project="..\SmartAmmoSwitch.Local.props"
+            Condition="Exists('..\SmartAmmoSwitch.Local.props')"/>
+
+    <PropertyGroup>
+        <TerrariaExe Condition="'$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\Terraria.exe</TerrariaExe>
+        <TerrariaModderCoreDll Condition="'$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\TerrariaModder\core\TerrariaModder.Core.dll</TerrariaModderCoreDll>
+        <ManifestPath>$(MSBuildThisFileDirectory)..\..\mod\manifest.json</ManifestPath>
+        <DeployToGame Condition="'$(DeployToGame)' == ''">false</DeployToGame>
+        <TerrariaModDirectory Condition="'$(TerrariaModDirectory)' == '' and '$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\TerrariaModder\mods\smart-ammo-switch</TerrariaModDirectory>
+    </PropertyGroup>
+
+    <Target Name="ValidateLocalConfiguration"
+            BeforeTargets="ResolveReferences">
+        <Error Condition="'$(TerrariaDirectory)' == ''"
+               Text="TerrariaDirectory is not configured. Create src\SmartAmmoSwitch.Local.props from docs\SmartAmmoSwitch.Local.props.example and set the Terraria installation path."/>
+        <Error Condition="'$(TerrariaExe)' != '' and !Exists('$(TerrariaExe)')"
+               Text="Terraria.exe was not found at '$(TerrariaExe)'. Update TerrariaDirectory in src\SmartAmmoSwitch.Local.props."/>
+        <Error Condition="'$(TerrariaModderCoreDll)' != '' and !Exists('$(TerrariaModderCoreDll)')"
+               Text="TerrariaModder.Core.dll was not found at '$(TerrariaModderCoreDll)'. Update TerrariaDirectory in src\SmartAmmoSwitch.Local.props."/>
+        <Error Condition="'$(XnaFrameworkGameDll)' == ''"
+               Text="XnaFrameworkGameDll is not configured. Set it in src\SmartAmmoSwitch.Local.props."/>
+        <Error Condition="'$(XnaFrameworkGameDll)' != '' and !Exists('$(XnaFrameworkGameDll)')"
+               Text="Microsoft.Xna.Framework.Game.dll was not found at '$(XnaFrameworkGameDll)'. Update XnaFrameworkGameDll in src\SmartAmmoSwitch.Local.props."/>
+        <Error Condition="'$(DeployToGame)' == 'true' and '$(TerrariaModDirectory)' == ''"
+               Text="TerrariaModDirectory is not configured while DeployToGame is enabled."/>
+    </Target>
+
+    <ItemGroup Condition="'$(TerrariaDirectory)' != ''">
+        <Reference Include="Terraria">
+            <HintPath>$(TerrariaExe)</HintPath>
+            <Private>false</Private>
+        </Reference>
+
+        <Reference Include="TerrariaModder.Core">
+            <HintPath>$(TerrariaModderCoreDll)</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(XnaFrameworkGameDll)' != ''">
+        <Reference Include="Microsoft.Xna.Framework.Game">
+            <HintPath>$(XnaFrameworkGameDll)</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <Target Name="DeployModToGame"
+            AfterTargets="Build"
+            Condition="'$(DeployToGame)' == 'true' and '$(TerrariaModDirectory)' != ''">
+        <Error Condition="!Exists('$(ManifestPath)')"
+               Text="TerrariaModder manifest was not found at '$(ManifestPath)'."/>
+        <MakeDir Directories="$(TerrariaModDirectory)"/>
+        <Copy SourceFiles="$(TargetPath);$(ManifestPath)"
+              DestinationFolder="$(TerrariaModDirectory)"
+              SkipUnchangedFiles="true"/>
+    </Target>
+</Project>
