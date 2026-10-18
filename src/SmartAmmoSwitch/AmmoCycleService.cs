@@ -131,7 +131,8 @@ namespace SmartAmmoSwitch
         {
             bool stateInvalid = !IsStateValid(weaponType, useAmmo);
             bool currentTypeMissing = currentType == -1 || !orderedTypes.Contains(currentType);
-            bool inventoryChanged = signature != _state.InventorySignature;
+            bool inventoryChanged = signature != _state.InventorySignature ||
+                                    !new HashSet<int>(_state.OrderedTypes).SetEquals(orderedTypes);
             bool manualLayoutChanged = !stateInvalid && HasManualLayoutChange(currentLayout);
 
             if (stateInvalid || currentTypeMissing || manualLayoutChanged)

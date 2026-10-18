@@ -25,9 +25,11 @@ When an ammo-switch keybind is pressed, Smart Ammo Switch:
 1. Finds ammunition compatible with the currently held weapon in the configured search area.
 2. Excludes ammunition blocked by the active filter.
 3. Chooses the next or previous available ammo type.
-4. Moves the chosen stack into the preferred active inventory position when needed.
+4. Swaps the chosen stack with the ammunition stack Terraria currently selects for the held weapon, when needed.
 
-Whole-inventory search prioritizes the dedicated ammo slots for regular ammunition and the coin slots for the Coin Gun. Coin Gun cycling requires whole-inventory search. Cycling can rearrange ammo stacks to make the selected type active.
+For whole-inventory search, the initial cycling order prioritizes the dedicated ammo slots for regular ammunition and the coin slots for the Coin Gun. Coin Gun cycling requires whole-inventory search. Cycling can rearrange ammo stacks to make the selected type active.
+
+The mod respects Terraria's ammo cycling accessories. Further shots or pauses can change which ammo Terraria selects according to the game's normal rules.
 
 No switch occurs when the held weapon does not use ammunition, no compatible ammo is available, the filter blocks all compatible types, or only one usable type remains.
 
@@ -69,8 +71,6 @@ Keybinds can be configured through TerrariaModder.
 - TerrariaModder Core 0.4.1 or newer.
 
 ## Compatibility
-
-Smart Ammo Switch 1.2.0 targets Terraria 1.4.5 and requires TerrariaModder 0.4.1 or newer.
 
 The mod does not add persistent items, NPCs, tiles, or world objects, so it does not require a new character or world. Multiplayer behavior has not been tested.
 

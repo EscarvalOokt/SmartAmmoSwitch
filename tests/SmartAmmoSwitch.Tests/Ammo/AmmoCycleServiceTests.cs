@@ -91,6 +91,60 @@ namespace SmartAmmoSwitch.Tests.Ammo
             Assert.That(cycle.SelectNext(CycleDirection.Forward), Is.EqualTo(103));
         }
 
+        [TestCase(true, 47)]
+        [TestCase(false, 3003)]
+        public void DifferentAmmoTypesWithSameSignature_ReplaceUnavailableTypes(bool forward, int expectedNextType)
+        {
+            var cycle = new AmmoCycleService();
+            // These two sets of arrow item IDs both produce this inventory signature.
+            const int signature = 16947882;
+            cycle.Synchronize(
+                1,
+                1,
+                new List<int> { 40, 41, 516, 988 },
+                40,
+                signature,
+                Layout((54, 40), (55, 41), (56, 516), (57, 988)));
+
+            cycle.Synchronize(
+                1,
+                1,
+                new List<int> { 40, 47, 265, 3003 },
+                40,
+                signature,
+                Layout((54, 40), (55, 47), (56, 265), (57, 3003)));
+
+            Assert.That(cycle.OrderedTypes, Is.EqualTo(new[] { 40, 47, 265, 3003 }));
+            Assert.That(cycle.CurrentIndex, Is.EqualTo(0));
+            CycleDirection direction = forward ? CycleDirection.Forward : CycleDirection.Backward;
+            Assert.That(cycle.SelectNext(direction), Is.EqualTo(expectedNextType));
+        }
+
+        [Test]
+        public void TypeReplacementWithSameSignature_PreservesExistingOrderAndAppendsNewTypes()
+        {
+            var cycle = new AmmoCycleService();
+            cycle.Reset(
+                1,
+                1,
+                new List<int> { 101, 103, 102, 105 },
+                101,
+                123,
+                Layout((54, 101), (55, 102), (56, 103), (57, 105)));
+
+            cycle.Synchronize(
+                1,
+                1,
+                new List<int> { 101, 102, 103, 104 },
+                101,
+                123,
+                Layout((54, 101), (55, 102), (56, 103), (57, 104)));
+
+            Assert.That(cycle.OrderedTypes, Is.EqualTo(new[] { 101, 103, 102, 104 }));
+            Assert.That(cycle.CurrentIndex, Is.EqualTo(0));
+            Assert.That(cycle.SelectNext(CycleDirection.Forward), Is.EqualTo(103));
+        }
+
         [Test]
         public void DisappearingType_IsRemovedWithoutResettingTheCycle()
         {

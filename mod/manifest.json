@@ -2,7 +2,7 @@
     "id": "smart-ammo-switch",
     "name": "Smart Ammo Switch",
     "author": "Escarval",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "Cycle through compatible ammo types with hotkeys and manage allowed ammo via an in-game filter UI.",
     "entry_dll": "SmartAmmoSwitch.dll",
     "terraria_version": "1.4.5",

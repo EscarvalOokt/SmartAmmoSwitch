@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Terraria;
 using Terraria.ID;
 using TerrariaModder.Core;
@@ -13,7 +14,7 @@ namespace SmartAmmoSwitch
     {
         public const string ModId = "smart-ammo-switch";
         public const string ModName = "Smart Ammo Switch";
-        public const string ModVersion = "1.2.0";
+        public const string ModVersion = "1.2.1";
 
         private const string NextAmmoKey = "X";
         private const string PrevAmmoKey = "Z";
@@ -28,6 +29,7 @@ namespace SmartAmmoSwitch
         private ILogger _log;
 
         private AmmoSearchMode _mode = AmmoSearchMode.AmmoSlotsOnly;
+        private MethodInfo _pickAmmoItemMethod;
         private bool _showMessages = true;
 
         internal static ModContext Context { get; private set; }
@@ -41,6 +43,7 @@ namespace SmartAmmoSwitch
             Context = context;
 
             _log = context.Logger;
+            InitializeAmmoSelector();
             _config = context.GetConfig<SmartAmmoSwitchConfig>();
 
             if (_config == null)
@@ -91,6 +94,7 @@ namespace SmartAmmoSwitch
                 AmmoFilterSettings.Update(AmmoFilterMode.Disabled, null);
 
                 _config = null;
+                _pickAmmoItemMethod = null;
                 Context = null;
             }
         }
@@ -113,6 +117,30 @@ namespace SmartAmmoSwitch
         {
             LoadConfig();
             _filterUi?.RefreshFromConfig();
+        }
+
+        private void InitializeAmmoSelector()
+        {
+            try
+            {
+                _pickAmmoItemMethod = typeof(Player).GetMethod(
+                    "PickAmmo_PickAmmoItem",
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    types: [typeof(Item)],
+                    modifiers: null);
+
+                if (_pickAmmoItemMethod == null || _pickAmmoItemMethod.ReturnType != typeof(Item))
+                {
+                    _pickAmmoItemMethod = null;
+                    _log.Error("Terraria ammo selector is unavailable; ammo switching is disabled.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _pickAmmoItemMethod = null;
+                _log.Error("Failed to resolve Terraria ammo selector: " + ex);
+            }
         }
 
         private void LoadConfig()
@@ -210,7 +238,13 @@ namespace SmartAmmoSwitch
             }
 
             int signature = AmmoUtils.BuildInventorySignature(candidates);
-            int currentType = GetActiveAmmoType(player, useAmmo);
+            int currentType = GetActiveAmmoType(player, weapon);
+            if (currentType == -1)
+            {
+                ShowMessage("Unable to determine active ammo", 255, 80, 80);
+                return false;
+            }
+
             List<AmmoLayoutEntry> currentLayout = AmmoUtils.BuildCandidateLayout(candidates);
 
             switchContext = new AmmoSwitchContext(
@@ -241,7 +275,7 @@ namespace SmartAmmoSwitch
 
             List<AmmoCandidate> candidates = GetFilteredAmmoCandidates(player, weapon, useAmmo);
 
-            int activeSlot = GetPreferredAmmoSlot(player, useAmmo);
+            int activeSlot = GetPreferredAmmoSlot(player, weapon);
             int targetSlot = PickSlotForType(candidates, nextType, useAmmo);
 
             if (activeSlot == -1 || targetSlot == -1)
@@ -253,7 +287,7 @@ namespace SmartAmmoSwitch
             if (activeSlot != targetSlot)
                 Swap(player.inventory, activeSlot, targetSlot);
 
-            int newActiveSlot = GetPreferredAmmoSlot(player, useAmmo);
+            int newActiveSlot = GetPreferredAmmoSlot(player, weapon);
             if (newActiveSlot == -1 || player.inventory[newActiveSlot].type != nextType)
             {
                 if (activeSlot != targetSlot)
@@ -296,32 +330,38 @@ namespace SmartAmmoSwitch
                 .ToList();
         }
 
-        private static int GetPreferredAmmoSlot(Player player, int useAmmo)
+        private int GetPreferredAmmoSlot(Player player, Item weapon)
         {
-            bool isCoinAmmo = useAmmo == AmmoID.Coin;
-            int bestRank = int.MaxValue;
-            int bestSlot = -1;
+            if (_pickAmmoItemMethod == null)
+                return -1;
 
-            for (var slot = 0; slot < player.inventory.Length; slot++)
+            try
             {
-                int rank = AmmoSlotPriority.GetRank(slot, isCoinAmmo);
-                if (rank >= bestRank)
-                    continue;
+                // This selector reads the current cycling offset without consuming ammo or advancing it.
+                var activeItem = (Item)_pickAmmoItemMethod.Invoke(player, [weapon]);
+                if (!AmmoUtils.IsValidAmmo(activeItem) || activeItem.ammo != weapon.useAmmo)
+                    return -1;
 
-                Item item = player.inventory[slot];
-                if (!AmmoUtils.IsValidAmmo(item) || item.ammo != useAmmo)
-                    continue;
+                for (var slot = 0; slot < player.inventory.Length; slot++)
+                {
+                    if (ReferenceEquals(player.inventory[slot], activeItem))
+                        return slot;
+                }
 
-                bestRank = rank;
-                bestSlot = slot;
+                _log?.Warn("Terraria ammo selector returned an item outside the player inventory.");
+            }
+            catch (Exception ex)
+            {
+                // Return failure so the caller can roll back a swap if this is the verification lookup.
+                _log?.Error("Failed to determine active ammo: " + ex);
             }
 
-            return bestSlot;
+            return -1;
         }
 
-        private int GetActiveAmmoType(Player player, int useAmmo)
+        private int GetActiveAmmoType(Player player, Item weapon)
         {
-            int slot = GetPreferredAmmoSlot(player, useAmmo);
+            int slot = GetPreferredAmmoSlot(player, weapon);
             if (slot == -1)
                 return -1;
 

@@ -1,6 +1,6 @@
 # SmartAmmoSwitch architecture
 
-This document records the current production architecture and implementation boundaries of SmartAmmoSwitch 1.2.0.
+This document records the current production architecture and implementation boundaries of SmartAmmoSwitch 1.2.1.
 
 ## Sources of truth
 
@@ -13,7 +13,7 @@ When documentation and production code disagree about current project behavior, 
 
 ## Runtime baseline and dependencies
 
-The current production version is **SmartAmmoSwitch 1.2.0**, targeting Terraria **1.4.5** and .NET Framework **4.8**. The manifest declares TerrariaModder Core **`>=0.4.1`**.
+The current production version is **SmartAmmoSwitch 1.2.1**, targeting Terraria **1.4.5** and .NET Framework **4.8**. The manifest declares TerrariaModder Core **`>=0.4.1`**.
 
 In-game validation was performed using Core **0.4.2**, including interaction with an independent TerrariaWindowKit consumer. Multiplayer behavior is unverified.
 
@@ -27,7 +27,8 @@ The production build references Terraria, TerrariaModder Core, Harmony (`0Harmon
 - TerrariaModder infrastructure owns configuration, keybind registration, logging, and mod lifecycle integration.
 - TerrariaWindowKit owns root-window state, geometry, activation, input coordination, and Escape arbitration.
 - TerrariaModder Core provides the Filter Editor's content widgets, rendering, tooltips, and UI input primitives.
-- SmartAmmoSwitch owns ammo selection/filtering behavior and the Filter Editor content, layout, and consumer-side hit tests.
+- Terraria determines the actual active ammo stack from the held weapon and its native ammo-cycling state.
+- SmartAmmoSwitch owns the allowed ammo-type cycle, filtering, inventory swaps, and the Filter Editor content, layout, and consumer-side hit tests.
 
 No parallel root-window, pin-state, or input-coordination abstraction is maintained by SmartAmmoSwitch.
 
@@ -43,7 +44,7 @@ Individual mod unloading via `IMod.Unload()` has not been verified in game.
 
 ## Configuration
 
-`SmartAmmoSwitchConfig : ModConfig` is the typed configuration model. Its schema `Version` remains **1**, independently of mod version 1.2.0.
+`SmartAmmoSwitchConfig : ModConfig` is the typed configuration model. Its schema `Version` remains **1**, independently of mod version 1.2.1.
 
 The configuration surface contains:
 
@@ -70,13 +71,15 @@ keybind
   -> remember resulting candidate layout on success
 ```
 
-`AmmoScanner` owns candidate discovery within the configured search area. `AmmoFilterPipeline` restricts the candidates available for cycling. `SmartAmmoSwitchMod.GetPreferredAmmoSlot` identifies the physically active compatible ammo independently of that filter, so a blocked stack can still be the slot that must receive the selected allowed stack. `AmmoSwitchContext` carries the candidates, actual active type, and snapshots prepared for one switch operation.
+`AmmoScanner` owns candidate discovery within the configured search area. `AmmoFilterPipeline` restricts the candidates available for cycling. Terraria selects the actual active ammo independently of that filter, so a blocked stack can still be the slot that must receive the selected allowed stack. `AmmoSwitchContext` carries the candidates, actual active type, and snapshots prepared for one switch operation.
 
-`AmmoSlotPriority` provides the shared slot ranking for the initial type order, target-stack selection, and actual active-slot lookup. Regular ammunition prioritizes ammo slots **54-57**, followed by main inventory slots **0-49**. Coin ammunition prioritizes coin slots **50-53**, followed by main inventory slots **0-49**. Slots outside the corresponding ranges are excluded.
+`AmmoSlotPriority` provides the shared slot ranking for the initial type order and target-stack selection. Regular ammunition prioritizes ammo slots **54-57**, followed by main inventory slots **0-49**. Coin ammunition prioritizes coin slots **50-53**, followed by main inventory slots **0-49**. Slots outside the corresponding ranges are excluded from candidates.
 
-`AmmoCycleService.Synchronize` preserves the established type order as stacks appear or disappear, removes unavailable types, and appends newly available types. Manual movement of a remaining type rebuilds the order from the current candidate layout; a changed weapon or ammo category, or an active type absent from the allowed cycle, also resets the state. When the actual active type remains in the cycle, synchronization anchors the current index to it, including when consuming a stack exposes another active type without changing the set of available types.
+`SmartAmmoSwitchMod.GetPreferredAmmoSlot` uses a `MethodInfo` cached during initialization to call Terraria's private `Player.PickAmmo_PickAmmoItem(Item)` selector. The returned item is mapped to its inventory slot by reference identity. This read-only lookup accounts for the current weapon and the saved cycling offset in the native `None`, `AmmoSlots`, `FullInventory`, and `Random` modes. It neither consumes ammo nor changes the cycling offset or timer; subsequent shots and timer expiry retain their vanilla behavior.
 
-After swapping, `SmartAmmoSwitchMod` verifies that the selected type occupies the actual active slot. A failed verification reverses the swap. The resulting candidate layout is remembered after a successful switch.
+`AmmoCycleService.Synchronize` preserves the established type order as stacks appear or disappear, removes unavailable types, and appends newly available types. Type-set changes are detected by differing inventory signatures or an exact set comparison when signatures match, so hash collisions cannot leave unavailable types in the cycle. Manual movement of a remaining type rebuilds the order from the current candidate layout; a changed weapon or ammo category, or an active type absent from the allowed cycle, also resets the state. When the actual active type remains in the cycle, synchronization anchors the current index to it, including when consuming a stack exposes another active type without changing the set of available types.
+
+The same Terraria selector determines the current type, the active slot before swapping, and the active type during verification after swapping. If the private method is unavailable, returns an invalid result, or throws, the lookup reports failure. Failure before the swap stops the operation; failed verification after it reverses the swap. There is no fallback to a fixed slot priority for active-ammo selection. The resulting candidate layout is remembered after a successful switch.
 
 ## Filtering and catalog
 
