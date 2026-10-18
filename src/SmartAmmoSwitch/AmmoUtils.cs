@@ -28,8 +28,10 @@ namespace SmartAmmoSwitch
 
         public static List<AmmoLayoutEntry> BuildCandidateLayout(List<AmmoCandidate> candidates)
         {
-            return candidates.OrderByDescending(c => c.IsInAmmoSlot).ThenBy(c => c.SlotIndex)
-                .Select(c => new AmmoLayoutEntry(c.SlotIndex, c.ItemType)).ToList();
+            return candidates.OrderByDescending(c => c.IsInAmmoSlot)
+                .ThenBy(c => c.SlotIndex)
+                .Select(c => new AmmoLayoutEntry(c.SlotIndex, c.ItemType))
+                .ToList();
         }
     }
 }

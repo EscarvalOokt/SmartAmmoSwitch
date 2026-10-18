@@ -1,73 +1,57 @@
 # Smart Ammo Switch
 
-*Cycle through compatible ammo types without manually rearranging your inventory.*
+![Smart Ammo Switch preview](assets/SmartAmmoSwitch_Preview.png)
 
-Smart Ammo Switch is a quality-of-life mod for Terraria that lets you cycle forward and backward through ammunition compatible with your currently held weapon.
+**Cycle through compatible ammo types without manually rearranging your inventory.**
 
-The mod can search either only the dedicated ammo slots or your whole inventory, with ammo slots taking priority when whole-inventory search is enabled.
+[Download on Nexus Mods](https://www.nexusmods.com/terraria/mods/170)
 
-A built-in Filter Editor lets you exclude unwanted ammunition with a blacklist or restrict switching to a selected whitelist.
+Smart Ammo Switch is a quality-of-life mod for Terraria 1.4.5. It lets you cycle forward and backward through ammunition compatible with your currently held weapon and manage which ammo types are allowed with an in-game Filter Editor.
 
 ## Features
 
-- Cycle forward and backward through compatible ammunition types.
-- Search only the four dedicated ammo slots or the entire inventory.
-- Prioritize dedicated ammo slots when whole-inventory search is enabled.
-- Preserve a stable cycling order while reacting to inventory and layout changes.
-- Choose between Disabled, Blacklist, and Whitelist filtering modes.
-- Manage filtered ammunition through an in-game Filter Editor.
-- Search supported ammunition by name, item ID, or category.
-- Browse currently selected ammunition separately from the full catalog.
-- Select or clear multiple visible items at once.
-- Optionally show the currently selected ammo type in chat.
+- Cycle between compatible ammunition types with dedicated hotkeys.
+- Search the four dedicated ammo slots or the whole inventory.
+- Keep a stable cycling order while responding to inventory and manual layout changes.
+- Use Disabled, Blacklist, or Whitelist filtering.
+- Manage ammunition in a searchable catalog with category icons, item previews, and bulk actions.
+- Drag or pin the Filter Editor window.
+- Optionally show the selected ammo type in chat.
 
 ## How it works
 
-When an ammo-switch keybind is pressed, Smart Ammo Switch checks the ammunition compatible with the currently held weapon.
+When an ammo-switch keybind is pressed, Smart Ammo Switch:
 
-1. Compatible ammunition is collected from the configured search area.
-2. The current item filter is applied.
-3. The next or previous available ammo type is selected.
-4. The selected ammo stack is moved into the preferred active position when necessary.
+1. Finds ammunition compatible with the currently held weapon in the configured search area.
+2. Excludes ammunition blocked by the active filter.
+3. Chooses the next or previous available ammo type.
+4. Moves the chosen stack into the preferred active inventory position when needed.
 
-When whole-inventory search is enabled, dedicated ammo slots are checked before normal inventory slots.
+Whole-inventory search prioritizes the dedicated ammo slots for regular ammunition and the coin slots for the Coin Gun. Coin Gun cycling requires whole-inventory search. Cycling can rearrange ammo stacks to make the selected type active.
 
-No switch is performed when:
-
-- No compatible ammunition is available.
-- The active filter blocks every compatible ammo type.
-- Only one usable ammo type remains.
-- The held item does not use ammunition.
-
-Cycling may rearrange ammo stacks in the inventory so the selected ammunition becomes the active type.
+No switch occurs when the held weapon does not use ammunition, no compatible ammo is available, the filter blocks all compatible types, or only one usable type remains.
 
 ## Ammo filtering
 
-The built-in Filter Editor controls which supported ammunition can participate in cycling.
+Open the **Filter Editor** with **Alt + C** by default. The editor offers three modes:
 
-Open it with the **Open Filter UI** keybind, which defaults to **Alt + C**.
+- **Disabled** — all compatible ammunition is allowed; saved selections are retained.
+- **Blacklist** — selected ammunition is excluded from cycling.
+- **Whitelist** — only selected ammunition is allowed. An empty whitelist blocks ammo switching by the mod.
 
-### Disabled
+The active mode button displays the selected-item count. In Disabled mode, the count is shown as saved selections.
 
-Filtering is ignored and all compatible ammunition may be used.
+The editor provides two views: **Catalog** for supported ammunition and **Selected** for items already in the filter. Search by name, item ID, or category, then use the category tabs (arrows, bullets, rockets, darts, coins, flares, sand, solution, or other) to narrow the results. Categories use item icons where available. Rows show an item icon and selection checkbox, with item details in tooltips.
 
-### Blacklist
+Bulk actions apply to search and category results, not just rows currently visible in the scroll area:
 
-Selected ammunition is excluded from cycling.
+- **Select results** (Catalog) adds every matching item to the selection.
+- **Clear results** (Selected) removes the matching selected items.
+- **Clear all** removes all selections, regardless of the current search or category.
 
-### Whitelist
+You can drag the Filter Editor by its header or use **Pin** to prevent Escape from closing the window. When Search has keyboard focus, Escape releases that focus first. You can still close a pinned window with its close button or the Filter Editor keybind. Pin resets when the window is closed and reopened.
 
-Only selected ammunition may be used.
-
-The Filter Editor includes:
-
-- A searchable supported-ammo catalog.
-- Category tabs for arrows, bullets, rockets, darts, coins, flares, sand, solution, and other supported ammo.
-- A separate list of currently selected items.
-- Bulk selection and clearing actions.
-- In-game item previews.
-
-Filter settings are saved through the TerrariaModder configuration system.
+Filter mode and selected ammunition IDs are saved through TerrariaModder configuration.
 
 ## Controls
 
@@ -81,65 +65,61 @@ Keybinds can be configured through TerrariaModder.
 
 ## Requirements
 
-- Terraria 1.4.5
-- TerrariaModder 0.4.0 or newer
-
-A .NET Framework 4.8 development environment is additionally required when building the project from source.
+- Terraria 1.4.5.
+- TerrariaModder Core 0.4.1 or newer.
 
 ## Compatibility
 
-Smart Ammo Switch is designed for Terraria 1.4.5 and the standard Terraria ammunition system used by the current project baseline.
+Smart Ammo Switch 1.2.0 targets Terraria 1.4.5 and requires TerrariaModder 0.4.1 or newer.
 
-The mod can be safely added to or removed from existing characters and worlds. No preparation or new character/world is required.
-
-It does not add persistent items, NPCs, tiles, world objects, or other save-dependent content.
-
-Multiplayer behavior has not been verified and should currently be considered unconfirmed.
+The mod does not add persistent items, NPCs, tiles, or world objects, so it does not require a new character or world. Multiplayer behavior has not been tested.
 
 ## Installation
 
 1. Install and configure TerrariaModder.
-2. Launch Terraria through `TerrariaInjector.exe` at least once so TerrariaModder can initialize its files and create the `mods` directory if necessary.
-3. Copy the `smart-ammo-switch` folder into:
+2. Launch Terraria through `TerrariaInjector.exe` at least once to initialize TerrariaModder and its `mods` directory.
+3. Obtain a Smart Ammo Switch distribution containing `SmartAmmoSwitch.dll` and `manifest.json`.
+4. Place the `smart-ammo-switch` folder in `Terraria/TerrariaModder/mods/`, with both files directly inside that folder.
+5. Launch Terraria through `TerrariaInjector.exe`.
+
+The installed directory should look like this:
 
 ```text
-Terraria/TerrariaModder/mods/
-````
-
-The installed mod directory should contain:
-
-```text
-smart-ammo-switch/
-├── SmartAmmoSwitch.dll
-└── manifest.json
+Terraria/
+└── TerrariaModder/
+    └── mods/
+        └── smart-ammo-switch/
+            ├── SmartAmmoSwitch.dll
+            └── manifest.json
 ```
-
-Launch the game through `TerrariaInjector.exe`.
 
 ## Development
 
-### Local configuration
+### Build prerequisites and local configuration
 
-Copy:
+The production project targets .NET Framework 4.8. Building from source requires the appropriate .NET development tools, Terraria, TerrariaModder Core, Harmony, and XNA references.
 
-```text
-docs/SmartAmmoSwitch.Local.props.example
+TerrariaWindowKit [1.1.0](https://github.com/EscarvalOokt/TerrariaWindowKit/releases/tag/v1.1.0) is imported as **source-only**, not as a separate DLL. From the directory containing the `SmartAmmoSwitch` repository, clone the `v1.1.0` tag into a sibling `TerrariaWindowKit` directory:
+
+```bash
+git clone --branch v1.1.0 --depth 1 https://github.com/EscarvalOokt/TerrariaWindowKit.git TerrariaWindowKit
 ```
 
-to:
+The project expects this path relative to the SmartAmmoSwitch root:
 
 ```text
-src/SmartAmmoSwitch.Local.props
+../TerrariaWindowKit/src/TerrariaWindowKit.Source.projitems
 ```
 
-Then configure:
+Copy `docs/SmartAmmoSwitch.Local.props.example` to `src/SmartAmmoSwitch.Local.props` and configure:
 
-* `TerrariaDirectory` — root directory of the local Terraria installation.
-* `XnaFrameworkGameDll` — local `Microsoft.Xna.Framework.Game.dll` reference used to compile against Terraria.
-* `DeployToGame` — set to `true` to enable post-build deployment.
-* `TerrariaModDirectory` — target `TerrariaModder/mods/smart-ammo-switch` directory.
+- `TerrariaDirectory` — root of the local Terraria installation; the project resolves Terraria, Core, and the default `0Harmony.dll` path from it.
+- `XnaFrameworkDll` — local `Microsoft.Xna.Framework.dll` reference.
+- `XnaFrameworkGameDll` — local `Microsoft.Xna.Framework.Game.dll` reference.
+- `DeployToGame` — set to `true` to copy build output to the game after a successful build.
+- `TerrariaModDirectory` — destination `TerrariaModder/mods/smart-ammo-switch` directory when deployment is enabled.
 
-The local props file contains machine-specific paths and is intentionally excluded from Git.
+The local props file contains machine-specific paths and is intentionally excluded from Git. `HarmonyDll` can be supplied explicitly if it differs from the default derived from `TerrariaDirectory`.
 
 ### Build
 
@@ -149,19 +129,17 @@ Build the production solution in Release configuration:
 dotnet build src/SmartAmmoSwitch.sln -c Release
 ```
 
-When `DeployToGame` is enabled, the production project copies `SmartAmmoSwitch.dll` and `mod/manifest.json` to the configured TerrariaModder mod directory after a successful build.
+When `DeployToGame` is enabled, the project copies `SmartAmmoSwitch.dll` and `mod/manifest.json` to the configured mod directory.
 
 ### Tests
 
-Run the NUnit test project with:
+Run the NUnit test project:
 
 ```bash
 dotnet test tests/SmartAmmoSwitch.Tests/SmartAmmoSwitch.Tests.csproj -c Release
 ```
 
-The current automated suite contains infrastructure smoke coverage for the test pipeline.
-
-Deterministic project-owned behavior can be covered with automated tests, while behavior that depends on the complete Terraria, TerrariaModder, or XNA runtime is validated separately in game.
+The automated suite covers ammo slot priorities, cycle state synchronization, and Filter Editor Search click-away. Behavior that depends on the complete Terraria, TerrariaModder, and XNA runtime is validated separately in game; see the [testing policy](docs/testing.md).
 
 ## Repository structure
 
@@ -174,10 +152,10 @@ tests/   Automated tests
 
 ## Technical documentation
 
-* [Architecture](docs/architecture.md)
-* [Testing policy](docs/testing.md)
+- [Architecture](docs/architecture.md)
+- [Testing policy](docs/testing.md)
 
 ## Links
 
-* [Nexus Mods](https://www.nexusmods.com/terraria/mods/170)
-* [GitHub Releases](https://github.com/EscarvalOokt/SmartAmmoSwitch/releases)
+- [Nexus Mods](https://www.nexusmods.com/terraria/mods/170)
+- [GitHub Releases](https://github.com/EscarvalOokt/SmartAmmoSwitch/releases)

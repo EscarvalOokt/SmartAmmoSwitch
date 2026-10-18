@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
+using Terraria.ID;
 using TerrariaModder.Core;
 using TerrariaModder.Core.Logging;
 
@@ -12,7 +13,7 @@ namespace SmartAmmoSwitch
     {
         public const string ModId = "smart-ammo-switch";
         public const string ModName = "Smart Ammo Switch";
-        public const string ModVersion = "1.1.0";
+        public const string ModVersion = "1.2.0";
 
         private const string NextAmmoKey = "X";
         private const string PrevAmmoKey = "Z";
@@ -78,14 +79,20 @@ namespace SmartAmmoSwitch
 
         public void Unload()
         {
-            _filterUi?.Unload();
-            _filterUi = null;
+            try
+            {
+                _filterUi?.Unload();
+            }
+            finally
+            {
+                _filterUi = null;
 
-            SupportedAmmoCatalog.Invalidate();
-            AmmoFilterSettings.Update(AmmoFilterMode.Disabled, null);
+                SupportedAmmoCatalog.Invalidate();
+                AmmoFilterSettings.Update(AmmoFilterMode.Disabled, null);
 
-            _config = null;
-            Context = null;
+                _config = null;
+                Context = null;
+            }
         }
 
         public void OnContentReady(ModContext context)
@@ -194,7 +201,7 @@ namespace SmartAmmoSwitch
                 return false;
             }
 
-            List<int> orderedTypes = BuildOrderedTypes(candidates);
+            List<int> orderedTypes = BuildOrderedTypes(candidates, useAmmo);
 
             if (orderedTypes.Count == 1)
             {
@@ -203,7 +210,7 @@ namespace SmartAmmoSwitch
             }
 
             int signature = AmmoUtils.BuildInventorySignature(candidates);
-            int currentType = GetActiveAmmoType(player, weapon, useAmmo);
+            int currentType = GetActiveAmmoType(player, useAmmo);
             List<AmmoLayoutEntry> currentLayout = AmmoUtils.BuildCandidateLayout(candidates);
 
             switchContext = new AmmoSwitchContext(
@@ -219,29 +226,13 @@ namespace SmartAmmoSwitch
 
         private void SyncCycleState(Item weapon, AmmoSwitchContext context)
         {
-            bool stateInvalid = !_cycle.IsStateValid(weapon.type, context.UseAmmo);
-            bool currentTypeMissing = context.CurrentType == -1 || !context.OrderedTypes.Contains(context.CurrentType);
-            bool inventoryChanged = context.Signature != _cycle.InventorySignature;
-            bool manualLayoutChanged = !stateInvalid && _cycle.HasManualLayoutChange(context.CurrentLayout);
-
-            if (stateInvalid || currentTypeMissing || manualLayoutChanged)
-            {
-                _cycle.Reset(
-                    weapon.type,
-                    context.UseAmmo,
-                    context.OrderedTypes,
-                    context.CurrentType,
-                    context.Signature,
-                    context.CurrentLayout);
-            }
-            else if (inventoryChanged)
-            {
-                _cycle.ApplyTypeChanges(
-                    context.OrderedTypes,
-                    context.CurrentType,
-                    context.Signature,
-                    context.CurrentLayout);
-            }
+            _cycle.Synchronize(
+                weapon.type,
+                context.UseAmmo,
+                context.OrderedTypes,
+                context.CurrentType,
+                context.Signature,
+                context.CurrentLayout);
         }
 
         private bool TryPerformSwap(Player player, Item weapon, int useAmmo, int nextType, out Item activeItem)
@@ -250,8 +241,8 @@ namespace SmartAmmoSwitch
 
             List<AmmoCandidate> candidates = GetFilteredAmmoCandidates(player, weapon, useAmmo);
 
-            int activeSlot = GetPreferredAmmoSlot(player, weapon, useAmmo);
-            int targetSlot = PickSlotForType(candidates, nextType);
+            int activeSlot = GetPreferredAmmoSlot(player, useAmmo);
+            int targetSlot = PickSlotForType(candidates, nextType, useAmmo);
 
             if (activeSlot == -1 || targetSlot == -1)
             {
@@ -262,74 +253,75 @@ namespace SmartAmmoSwitch
             if (activeSlot != targetSlot)
                 Swap(player.inventory, activeSlot, targetSlot);
 
+            int newActiveSlot = GetPreferredAmmoSlot(player, useAmmo);
+            if (newActiveSlot == -1 || player.inventory[newActiveSlot].type != nextType)
+            {
+                if (activeSlot != targetSlot)
+                    Swap(player.inventory, activeSlot, targetSlot);
+
+                ShowMessage("Unable to switch ammo", 255, 80, 80);
+                return false;
+            }
+
             List<AmmoCandidate> updatedCandidates = GetFilteredAmmoCandidates(player, weapon, useAmmo);
-            List<AmmoLayoutEntry> newLayout = AmmoUtils.BuildCandidateLayout(updatedCandidates);
-            _cycle.RememberLayout(newLayout);
+            _cycle.RememberLayout(AmmoUtils.BuildCandidateLayout(updatedCandidates));
 
-            int newActiveSlot = GetPreferredAmmoSlot(player, weapon, useAmmo);
-            if (newActiveSlot == -1)
-            {
-                ShowMessage("No compatible ammo", 255, 80, 80);
-                return false;
-            }
-
-            Item item = player.inventory[newActiveSlot];
-            if (item == null || item.IsAir || item.stack <= 0)
-            {
-                ShowMessage("No compatible ammo", 255, 80, 80);
-                return false;
-            }
-
-            activeItem = item;
+            activeItem = player.inventory[newActiveSlot];
             return true;
         }
 
         private List<AmmoCandidate> GetAmmoCandidates(Player player, int useAmmo)
         {
-            return _scanner.Scan(player, _mode).Where(c => c.AmmoType == useAmmo).ToList();
+            bool isCoinAmmo = useAmmo == AmmoID.Coin;
+            return _scanner.Scan(player, _mode)
+                .Where(c => c.AmmoType == useAmmo && AmmoSlotPriority.GetRank(c.SlotIndex, isCoinAmmo) != int.MaxValue)
+                .ToList();
         }
 
         private List<AmmoCandidate> GetFilteredAmmoCandidates(Player player, Item weapon, int useAmmo)
         {
-            return _scanner.Scan(player, _mode).Where(c => c.AmmoType == useAmmo)
-                .Where(c => _filterPipeline.Allows(c.Item, weapon)).ToList();
+            bool isCoinAmmo = useAmmo == AmmoID.Coin;
+            return _scanner.Scan(player, _mode)
+                .Where(c => c.AmmoType == useAmmo && AmmoSlotPriority.GetRank(c.SlotIndex, isCoinAmmo) != int.MaxValue)
+                .Where(c => _filterPipeline.Allows(c.Item, weapon))
+                .ToList();
         }
 
-        private static List<int> BuildOrderedTypes(List<AmmoCandidate> candidates)
+        private static List<int> BuildOrderedTypes(List<AmmoCandidate> candidates, int useAmmo)
         {
-            return candidates.GroupBy(c => c.ItemType)
-                .Select(g => g.OrderByDescending(c => c.IsInAmmoSlot).ThenBy(c => c.SlotIndex).First())
-                .OrderByDescending(c => c.IsInAmmoSlot).ThenBy(c => c.SlotIndex).Select(c => c.ItemType).ToList();
+            bool isCoinAmmo = useAmmo == AmmoID.Coin;
+            return candidates.OrderBy(c => AmmoSlotPriority.GetRank(c.SlotIndex, isCoinAmmo))
+                .GroupBy(c => c.ItemType)
+                .Select(g => g.Key)
+                .ToList();
         }
 
-        private int GetPreferredAmmoSlot(Player player, Item weapon, int useAmmo)
+        private static int GetPreferredAmmoSlot(Player player, int useAmmo)
         {
-            for (var i = 54; i <= 57; i++)
+            bool isCoinAmmo = useAmmo == AmmoID.Coin;
+            int bestRank = int.MaxValue;
+            int bestSlot = -1;
+
+            for (var slot = 0; slot < player.inventory.Length; slot++)
             {
-                Item item = player.inventory[i];
+                int rank = AmmoSlotPriority.GetRank(slot, isCoinAmmo);
+                if (rank >= bestRank)
+                    continue;
 
-                if (AmmoUtils.IsValidAmmo(item) && item.ammo == useAmmo && _filterPipeline.Allows(item, weapon))
-                {
-                    return i;
-                }
+                Item item = player.inventory[slot];
+                if (!AmmoUtils.IsValidAmmo(item) || item.ammo != useAmmo)
+                    continue;
+
+                bestRank = rank;
+                bestSlot = slot;
             }
 
-            for (var i = 0; i <= 53; i++)
-            {
-                Item item = player.inventory[i];
-
-                if (AmmoUtils.IsValidAmmo(item) && item.ammo == useAmmo && _filterPipeline.Allows(item, weapon))
-                {
-                    return i;
-                }
-            }
-
-            return -1;
+            return bestSlot;
         }
 
-        private int GetActiveAmmoType(Player player, Item weapon, int useAmmo)
+        private int GetActiveAmmoType(Player player, int useAmmo)
         {
-            int slot = GetPreferredAmmoSlot(player, weapon, useAmmo);
+            int slot = GetPreferredAmmoSlot(player, useAmmo);
             if (slot == -1)
                 return -1;
 
@@ -343,9 +335,14 @@ namespace SmartAmmoSwitch
             return raw == "1" ? AmmoSearchMode.WholeInventory : AmmoSearchMode.AmmoSlotsOnly;
         }
 
-        private static int PickSlotForType(List<AmmoCandidate> candidates, int type)
+        private static int PickSlotForType(List<AmmoCandidate> candidates, int type, int useAmmo)
         {
-            return candidates.FirstOrDefault(c => c.ItemType == type)?.SlotIndex ?? -1;
+            bool isCoinAmmo = useAmmo == AmmoID.Coin;
+            return candidates.Where(c => c.ItemType == type)
+                       .OrderBy(c => AmmoSlotPriority.GetRank(c.SlotIndex, isCoinAmmo))
+                       .FirstOrDefault()
+                       ?.SlotIndex ??
+                   -1;
         }
 
         private static void Swap(Item[] inv, int a, int b)

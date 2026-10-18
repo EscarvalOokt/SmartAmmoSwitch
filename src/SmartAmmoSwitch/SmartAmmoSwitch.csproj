@@ -9,7 +9,8 @@
         <ImplicitUsings>disable</ImplicitUsings>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-        <Version>1.1.0</Version>
+        <Version>1.2.0</Version>
+        <TerrariaWindowKitIncludeCore>true</TerrariaWindowKitIncludeCore>
     </PropertyGroup>
 
     <ItemGroup>
@@ -19,9 +20,12 @@
     <Import Project="..\SmartAmmoSwitch.Local.props"
             Condition="Exists('..\SmartAmmoSwitch.Local.props')"/>
 
+    <Import Project="..\..\..\TerrariaWindowKit\src\TerrariaWindowKit.Source.projitems" Label="Shared"/>
+
     <PropertyGroup>
         <TerrariaExe Condition="'$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\Terraria.exe</TerrariaExe>
         <TerrariaModderCoreDll Condition="'$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\TerrariaModder\core\TerrariaModder.Core.dll</TerrariaModderCoreDll>
+        <HarmonyDll Condition="'$(HarmonyDll)' == '' and '$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\TerrariaModder\core\deps\0Harmony.dll</HarmonyDll>
         <ManifestPath>$(MSBuildThisFileDirectory)..\..\mod\manifest.json</ManifestPath>
         <DeployToGame Condition="'$(DeployToGame)' == ''">false</DeployToGame>
         <TerrariaModDirectory Condition="'$(TerrariaModDirectory)' == '' and '$(TerrariaDirectory)' != ''">$(TerrariaDirectory)\TerrariaModder\mods\smart-ammo-switch</TerrariaModDirectory>
@@ -35,6 +39,14 @@
                Text="Terraria.exe was not found at '$(TerrariaExe)'. Update TerrariaDirectory in src\SmartAmmoSwitch.Local.props."/>
         <Error Condition="'$(TerrariaModderCoreDll)' != '' and !Exists('$(TerrariaModderCoreDll)')"
                Text="TerrariaModder.Core.dll was not found at '$(TerrariaModderCoreDll)'. Update TerrariaDirectory in src\SmartAmmoSwitch.Local.props."/>
+        <Error Condition="'$(HarmonyDll)' == ''"
+               Text="HarmonyDll is not configured. Set TerrariaDirectory in src\SmartAmmoSwitch.Local.props or provide HarmonyDll explicitly."/>
+        <Error Condition="'$(HarmonyDll)' != '' and !Exists('$(HarmonyDll)')"
+               Text="0Harmony.dll was not found at '$(HarmonyDll)'. Update TerrariaDirectory or HarmonyDll."/>
+        <Error Condition="'$(XnaFrameworkDll)' == ''"
+               Text="XnaFrameworkDll is not configured. Set it in src\SmartAmmoSwitch.Local.props."/>
+        <Error Condition="'$(XnaFrameworkDll)' != '' and !Exists('$(XnaFrameworkDll)')"
+               Text="Microsoft.Xna.Framework.dll was not found at '$(XnaFrameworkDll)'. Update XnaFrameworkDll in src\SmartAmmoSwitch.Local.props."/>
         <Error Condition="'$(XnaFrameworkGameDll)' == ''"
                Text="XnaFrameworkGameDll is not configured. Set it in src\SmartAmmoSwitch.Local.props."/>
         <Error Condition="'$(XnaFrameworkGameDll)' != '' and !Exists('$(XnaFrameworkGameDll)')"
@@ -51,6 +63,20 @@
 
         <Reference Include="TerrariaModder.Core">
             <HintPath>$(TerrariaModderCoreDll)</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(HarmonyDll)' != ''">
+        <Reference Include="0Harmony">
+            <HintPath>$(HarmonyDll)</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(XnaFrameworkDll)' != ''">
+        <Reference Include="Microsoft.Xna.Framework">
+            <HintPath>$(XnaFrameworkDll)</HintPath>
             <Private>false</Private>
         </Reference>
     </ItemGroup>

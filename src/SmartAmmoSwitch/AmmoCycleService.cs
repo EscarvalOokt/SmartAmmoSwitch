@@ -37,19 +37,56 @@ namespace SmartAmmoSwitch
 
         public bool HasManualLayoutChange(List<AmmoLayoutEntry> currentLayout)
         {
-            if (_state.LastCandidateLayout == null || _state.LastCandidateLayout.Count != currentLayout.Count)
+            if (_state.LastCandidateLayout == null)
                 return true;
 
-            for (var i = 0; i < currentLayout.Count; i++)
-            {
-                AmmoLayoutEntry prev = _state.LastCandidateLayout[i];
-                AmmoLayoutEntry curr = currentLayout[i];
+            Dictionary<int, HashSet<int>> previousSlots = GroupSlotsByType(_state.LastCandidateLayout);
+            Dictionary<int, HashSet<int>> currentSlots = GroupSlotsByType(currentLayout);
 
-                if (prev.SlotIndex != curr.SlotIndex || prev.ItemType != curr.ItemType)
-                    return true;
+            foreach (KeyValuePair<int, HashSet<int>> previous in previousSlots)
+            {
+                if (!currentSlots.TryGetValue(previous.Key, out HashSet<int> current))
+                    continue;
+
+                var lostSlot = false;
+                foreach (int slot in previous.Value)
+                {
+                    if (!current.Contains(slot))
+                    {
+                        lostSlot = true;
+                        break;
+                    }
+                }
+
+                if (!lostSlot)
+                    continue;
+
+                foreach (int slot in current)
+                {
+                    if (!previous.Value.Contains(slot))
+                        return true;
+                }
             }
 
             return false;
+        }
+
+        private static Dictionary<int, HashSet<int>> GroupSlotsByType(List<AmmoLayoutEntry> layout)
+        {
+            var slotsByType = new Dictionary<int, HashSet<int>>();
+
+            foreach (AmmoLayoutEntry entry in layout)
+            {
+                if (!slotsByType.TryGetValue(entry.ItemType, out HashSet<int> slots))
+                {
+                    slots = new HashSet<int>();
+                    slotsByType.Add(entry.ItemType, slots);
+                }
+
+                slots.Add(entry.SlotIndex);
+            }
+
+            return slotsByType;
         }
 
         public void ApplyTypeChanges(
@@ -82,6 +119,30 @@ namespace SmartAmmoSwitch
 
             _state.InventorySignature = signature;
             _state.LastCandidateLayout = new List<AmmoLayoutEntry>(currentLayout);
+        }
+
+        public void Synchronize(
+            int weaponType,
+            int useAmmo,
+            List<int> orderedTypes,
+            int currentType,
+            int signature,
+            List<AmmoLayoutEntry> currentLayout)
+        {
+            bool stateInvalid = !IsStateValid(weaponType, useAmmo);
+            bool currentTypeMissing = currentType == -1 || !orderedTypes.Contains(currentType);
+            bool inventoryChanged = signature != _state.InventorySignature;
+            bool manualLayoutChanged = !stateInvalid && HasManualLayoutChange(currentLayout);
+
+            if (stateInvalid || currentTypeMissing || manualLayoutChanged)
+                Reset(weaponType, useAmmo, orderedTypes, currentType, signature, currentLayout);
+            else if (inventoryChanged)
+                ApplyTypeChanges(orderedTypes, currentType, signature, currentLayout);
+            else
+            {
+                _state.CurrentIndex = _state.OrderedTypes.IndexOf(currentType);
+                RememberLayout(currentLayout);
+            }
         }
 
         public void RememberLayout(List<AmmoLayoutEntry> currentLayout)

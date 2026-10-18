@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Escarval.TerrariaWindowKit;
+using Terraria.ID;
 using TerrariaModder.Core;
 using TerrariaModder.Core.UI;
 using TerrariaModder.Core.UI.Widgets;
@@ -9,32 +11,57 @@ namespace SmartAmmoSwitch
 {
     internal sealed class FilterUiController
     {
-        private const int PanelWidth = 860;
-        private const int PanelHeight = 580;
+        private const int PanelWidth = 520;
+        private const int PanelHeight = 420;
+        private const int HeaderHeight = 32;
+        private const int PanelPadding = 8;
+        private const int CloseButtonSize = 24;
+        private const int PinButtonSpacing = 6;
+        private const string PanelTitle = "Smart Ammo Switch - Filter Editor";
 
-        private const int RowHeight = 28;
-        private const int SectionSpacing = 6;
-        private const int ControlHeight = 28;
-        private const int MinListHeight = 80;
+        private const int RowHeight = 26;
+        private const int SectionSpacing = 4;
+        private const int ControlHeight = 26;
+        private const int CategoryButtonHeight = 28;
+        private const int CategoryIconButtonWidth = 32;
+        private const int CategoryButtonSpacing = 4;
+
+        private static readonly AmmoCatalogCategoryFilter[] _categoryOrder =
+        [
+            AmmoCatalogCategoryFilter.All,
+            AmmoCatalogCategoryFilter.Arrows,
+            AmmoCatalogCategoryFilter.Bullets,
+            AmmoCatalogCategoryFilter.Rockets,
+            AmmoCatalogCategoryFilter.Darts,
+            AmmoCatalogCategoryFilter.Coins,
+            AmmoCatalogCategoryFilter.Flares,
+            AmmoCatalogCategoryFilter.Sand,
+            AmmoCatalogCategoryFilter.Solution,
+            AmmoCatalogCategoryFilter.Other
+        ];
+
+        private readonly HashSet<AmmoCatalogCategoryFilter> _availableCategoryTabs =
+            new HashSet<AmmoCatalogCategoryFilter>();
 
         private readonly ScrollView _catalogScroll = new ScrollView();
         private readonly ScrollView _selectedScroll = new ScrollView();
-
-        private readonly List<AmmoCatalogCategoryFilter> _visibleCategoryTabs = new List<AmmoCatalogCategoryFilter>();
-
         private AmmoCatalogCategoryFilter _activeCategory = AmmoCatalogCategoryFilter.All;
 
         private int _activeTab;
 
-        private List<SupportedAmmoInfo> _catalog = new List<SupportedAmmoInfo>();
+        private CoreWindowBackend _backend;
 
+        private List<SupportedAmmoInfo> _catalog = new List<SupportedAmmoInfo>();
         private SmartAmmoSwitchConfig _config;
         private List<SupportedAmmoInfo> _filteredCatalog = new List<SupportedAmmoInfo>();
+        private int _listTopOffset = -1;
         private AmmoFilterMode _mode = AmmoFilterMode.Disabled;
-        private DraggablePanel _panel;
         private TextInput _searchInput;
         private string _searchText = string.Empty;
         private List<SupportedAmmoInfo> _selectedItems = new List<SupportedAmmoInfo>();
+
+        private bool _wasMouseLeftDown;
+        private WindowHost _window;
 
         public void Initialize(ModContext context)
         {
@@ -45,18 +72,6 @@ namespace SmartAmmoSwitch
                 throw new InvalidOperationException("SmartAmmoSwitchConfig was not registered by TerrariaModder.");
             }
 
-            _panel = new DraggablePanel(
-                "smart-ammo-switch-filter",
-                "Smart Ammo Switch - Filter Editor",
-                PanelWidth,
-                PanelHeight)
-            {
-                ClipContent = false,
-                OnClose = OnPanelClose
-            };
-
-            _panel.RegisterDrawCallback(DrawUI);
-
             _searchInput = new TextInput("Search ammo by name or item ID...", maxLength: 100);
 
             RefreshFromConfig();
@@ -64,23 +79,86 @@ namespace SmartAmmoSwitch
 
         public void Unload()
         {
-            _panel?.UnregisterDrawCallback();
+            try
+            {
+                _window?.Dispose();
+            }
+            finally
+            {
+                _window = null;
+                try
+                {
+                    _backend?.Dispose();
+                }
+                finally
+                {
+                    _backend = null;
+                    _config = null;
+                    _searchInput = null;
+                    _wasMouseLeftDown = false;
+                    _listTopOffset = -1;
 
-            _config = null;
-            _panel = null;
-            _searchInput = null;
-
-            _catalog.Clear();
-            _filteredCatalog.Clear();
-            _selectedItems.Clear();
-            _visibleCategoryTabs.Clear();
+                    _catalog.Clear();
+                    _filteredCatalog.Clear();
+                    _selectedItems.Clear();
+                    _availableCategoryTabs.Clear();
+                }
+            }
         }
 
         public void Toggle()
         {
             EnsureCatalogBuilt();
             RefreshFromConfig();
-            _panel?.Toggle();
+            EnsureWindowCreated();
+            _window.Toggle();
+            _wasMouseLeftDown = UIRenderer.MouseLeft;
+        }
+
+        private void EnsureWindowCreated()
+        {
+            if (_window != null)
+                return;
+
+            // Create the backend on the UI thread when the editor is first opened.
+            var backend = new CoreWindowBackend(SharedCoordinator.Connect());
+            try
+            {
+                // Keep full mode labels readable even when the selected-item count reaches three digits.
+                int modeLabelWidth = Math.Max(
+                    UIRenderer.MeasureText("Disabled (999 saved)"),
+                    Math.Max(UIRenderer.MeasureText("Blacklist (999)"), UIRenderer.MeasureText("Whitelist (999)")));
+                int windowWidth = Math.Max(PanelWidth, (modeLabelWidth + 16) * 3 + 12 + PanelPadding * 2);
+
+                var options = new WindowOptions(
+                    new WindowBounds(
+                        Math.Max(0, (backend.ViewportWidth - windowWidth) / 2),
+                        Math.Max(0, (backend.ViewportHeight - PanelHeight) / 2),
+                        windowWidth,
+                        PanelHeight))
+                {
+                    Draggable = true,
+                    Resizable = false,
+                    Pinnable = true,
+                    MinimumWidth = windowWidth,
+                    MinimumHeight = PanelHeight
+                };
+                var callbacks = new WindowCallbacks
+                {
+                    Draw = DrawUI,
+                    HasTextFocus = () => _searchInput?.IsFocused == true,
+                    ReleaseTextFocus = OnPanelClose,
+                    WheelAt = GetWheelDisposition
+                };
+
+                _window = new WindowHost(SmartAmmoSwitchMod.ModId, "filter", options, backend, callbacks);
+                _backend = backend;
+            }
+            catch
+            {
+                backend.Dispose();
+                throw;
+            }
         }
 
         public void RefreshFromConfig()
@@ -102,64 +180,68 @@ namespace SmartAmmoSwitch
 
         private void RebuildLists(bool resetScroll)
         {
-            IEnumerable<SupportedAmmoInfo> catalogQuery = _catalog;
-            catalogQuery = ApplyCategoryFilter(catalogQuery, _activeCategory);
+            RebuildAvailableCategoryTabs();
+            bool categoryChanged = !_availableCategoryTabs.Contains(_activeCategory);
+            if (categoryChanged)
+                _activeCategory = AmmoCatalogCategoryFilter.All;
+
+            IEnumerable<SupportedAmmoInfo> catalogQuery = ApplyCategoryFilter(_catalog, _activeCategory);
             catalogQuery = ApplySearchFilter(catalogQuery, _searchText);
 
-            _filteredCatalog = catalogQuery.OrderBy(x => x.Category).ThenBy(x => x.ItemName).ThenBy(x => x.ItemId)
+            _filteredCatalog = catalogQuery.OrderBy(x => x.Category)
+                .ThenBy(x => x.ItemName)
+                .ThenBy(x => x.ItemId)
                 .ToList();
 
             IEnumerable<SupportedAmmoInfo> selectedQuery = _catalog.Where(x => AmmoFilterSettings.Contains(x.ItemId));
-
             selectedQuery = ApplyCategoryFilter(selectedQuery, _activeCategory);
             selectedQuery = ApplySearchFilter(selectedQuery, _searchText);
 
-            _selectedItems = selectedQuery.OrderBy(x => x.Category).ThenBy(x => x.ItemName).ThenBy(x => x.ItemId)
+            _selectedItems = selectedQuery.OrderBy(x => x.Category)
+                .ThenBy(x => x.ItemName)
+                .ThenBy(x => x.ItemId)
                 .ToList();
 
-            RebuildVisibleCategoryTabs();
-            EnsureValidActiveCategory();
-
-            if (resetScroll)
+            if (resetScroll || categoryChanged)
             {
                 _catalogScroll.ResetScroll();
                 _selectedScroll.ResetScroll();
             }
         }
 
-        private void RebuildVisibleCategoryTabs()
+        private void RebuildAvailableCategoryTabs()
         {
-            _visibleCategoryTabs.Clear();
-            _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.All);
+            _availableCategoryTabs.Clear();
+            _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.All);
 
             var categories = new HashSet<SupportedAmmoCategory>(GetCurrentCategoryTabSource().Select(x => x.Category));
 
             if (categories.Contains(SupportedAmmoCategory.Arrows))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Arrows);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Arrows);
 
             if (categories.Contains(SupportedAmmoCategory.Bullets))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Bullets);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Bullets);
 
             if (categories.Contains(SupportedAmmoCategory.Rockets))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Rockets);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Rockets);
 
             if (categories.Contains(SupportedAmmoCategory.Darts))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Darts);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Darts);
 
             if (categories.Contains(SupportedAmmoCategory.Coins))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Coins);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Coins);
 
             if (categories.Contains(SupportedAmmoCategory.Flares))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Flares);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Flares);
 
             if (categories.Contains(SupportedAmmoCategory.Sand))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Sand);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Sand);
 
             if (categories.Contains(SupportedAmmoCategory.Solution))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Solution);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Solution);
 
             if (categories.Contains(SupportedAmmoCategory.Other))
-                _visibleCategoryTabs.Add(AmmoCatalogCategoryFilter.Other);
+                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Other);
         }
 
         private IEnumerable<SupportedAmmoInfo> GetCurrentCategoryTabSource()
@@ -168,12 +250,6 @@ namespace SmartAmmoSwitch
                 return ApplySearchFilter(_catalog, _searchText);
 
             return ApplySearchFilter(_catalog.Where(x => AmmoFilterSettings.Contains(x.ItemId)), _searchText);
-        }
-
-        private void EnsureValidActiveCategory()
-        {
-            if (!_visibleCategoryTabs.Contains(_activeCategory))
-                _activeCategory = AmmoCatalogCategoryFilter.All;
         }
 
         private void SaveCurrentSettings()
@@ -195,24 +271,120 @@ namespace SmartAmmoSwitch
         // ReSharper disable once InconsistentNaming
         private void DrawUI()
         {
-            if (_panel == null)
+            WindowHost window = _window;
+            if (window == null || !window.IsOpen)
                 return;
+
+            int mouseX = WidgetInput.MouseX;
+            int mouseY = WidgetInput.MouseY;
+            bool mouseLeftDown = UIRenderer.MouseLeft;
+            bool searchClickAway = FilterEditorClickAwayPolicy.IsEligiblePress(
+                _searchInput?.IsFocused == true,
+                WidgetInput.BlockInput,
+                WidgetInput.MouseLeftClick,
+                mouseLeftDown,
+                _wasMouseLeftDown);
+            _wasMouseLeftDown = mouseLeftDown;
+            window.UpdatePointer(mouseX, mouseY, mouseLeftDown, WidgetInput.BlockInput);
+            WindowBounds bounds = window.Bounds;
+
+            int closeX = bounds.X + bounds.Width - PanelPadding - CloseButtonSize;
+            int closeY = bounds.Y + (HeaderHeight - CloseButtonSize) / 2;
+            bool hasCloseButton = bounds is { Width: >= CloseButtonSize + PanelPadding * 2, Height: >= HeaderHeight };
+            bool closeHovered = hasCloseButton &&
+                                WidgetInput.IsMouseOver(closeX, closeY, CloseButtonSize, CloseButtonSize);
+
+            int pinWidth = CorePinButtonRenderer.MeasureWidth("Pin", "Unpin");
+            int pinX = closeX - PinButtonSpacing - pinWidth;
+            bool hasPinButton = hasCloseButton &&
+                                bounds.Width >= (long)PanelPadding * 2 + CloseButtonSize + PinButtonSpacing + pinWidth;
+            bool pinHovered = hasPinButton &&
+                              !WidgetInput.BlockInput &&
+                              WidgetInput.IsMouseOver(pinX, closeY, pinWidth, CloseButtonSize);
+
+            if (!WidgetInput.BlockInput && WidgetInput.MouseLeftClick)
+            {
+                if (pinHovered)
+                {
+                    window.SetPinned(!window.IsPinned);
+                    WidgetInput.ConsumeClick();
+                }
+                else if (!closeHovered &&
+                         WidgetInput.IsMouseOver(
+                             bounds.X,
+                             bounds.Y,
+                             bounds.Width,
+                             Math.Min(HeaderHeight, bounds.Height)))
+                {
+                    window.BeginDrag(mouseX, mouseY);
+                    WidgetInput.ConsumeClick();
+                }
+            }
+
+            UIRenderer.DrawPanel(bounds.X, bounds.Y, bounds.Width, bounds.Height, UIColors.PanelBg);
+            UIRenderer.DrawRect(
+                bounds.X + 1,
+                bounds.Y + 1,
+                Math.Max(0, bounds.Width - 2),
+                Math.Max(0, Math.Min(HeaderHeight, bounds.Height - 2)),
+                UIColors.HeaderBg);
+
+            int titleWidth = bounds.Width - PanelPadding * 3 - CloseButtonSize;
+            if (hasPinButton)
+                titleWidth -= pinWidth + PinButtonSpacing;
+
+            if (titleWidth > 0 && bounds.Height >= HeaderHeight)
+            {
+                UIRenderer.DrawText(
+                    TextUtil.Truncate(PanelTitle, titleWidth),
+                    bounds.X + PanelPadding + 4,
+                    bounds.Y + 7,
+                    UIColors.TextTitle);
+            }
+
+            if (hasPinButton)
+            {
+                CorePinButtonRenderer.Draw(
+                    pinX,
+                    closeY,
+                    pinWidth,
+                    CloseButtonSize,
+                    window.IsPinned,
+                    pinHovered,
+                    "Pin",
+                    "Unpin");
+
+                if (pinHovered)
+                    Tooltip.Set(window.IsPinned ? "Unpin window" : "Pin window");
+            }
+
+            if (hasCloseButton &&
+                Button.Draw(
+                    closeX,
+                    closeY,
+                    CloseButtonSize,
+                    CloseButtonSize,
+                    "X",
+                    UIColors.CloseBtn,
+                    UIColors.CloseBtnHover,
+                    UIColors.Text))
+            {
+                window.Close();
+                return;
+            }
 
             _searchInput?.Update();
 
-            if (!_panel.BeginDraw())
-                return;
-
             try
             {
-                int contentX = _panel.ContentX;
-                int contentY = _panel.ContentY;
-                int contentWidth = _panel.ContentWidth;
-                int contentHeight = _panel.ContentHeight;
+                int contentX = bounds.X + PanelPadding;
+                int contentY = bounds.Y + HeaderHeight + PanelPadding;
+                int contentWidth = Math.Max(0, bounds.Width - PanelPadding * 2);
+                int contentHeight = Math.Max(0, bounds.Height - HeaderHeight - PanelPadding * 2);
 
                 int currentY = contentY;
 
-                currentY = DrawHeaderSection(contentX, currentY, contentWidth);
+                currentY = DrawFilterModeAndSearch(contentX, currentY, contentWidth, searchClickAway);
                 currentY += SectionSpacing;
 
                 currentY = DrawMainTabs(contentX, currentY, contentWidth);
@@ -221,22 +393,46 @@ namespace SmartAmmoSwitch
                 currentY = DrawCategoryTabs(contentX, currentY, contentWidth);
                 currentY += SectionSpacing;
 
+                currentY = DrawBulkActions(contentX, currentY, contentWidth);
+                currentY += SectionSpacing;
+
+                _listTopOffset = currentY - bounds.Y;
                 DrawListSection(contentX, currentY, contentWidth, contentHeight - (currentY - contentY));
             }
             finally
             {
-                _panel.EndDraw();
+                Tooltip.DrawDeferred();
             }
         }
 
-        private int DrawHeaderSection(int x, int y, int width)
+        private int GetWheelDisposition(int x, int y)
+        {
+            WindowHost window = _window;
+            if (window == null || !window.IsOpen || _listTopOffset < 0)
+                return (int)WheelDisposition.PassThrough;
+
+            WindowBounds bounds = window.Bounds;
+            int listX = bounds.X + PanelPadding;
+            int listY = bounds.Y + _listTopOffset;
+            int listWidth = bounds.Width - PanelPadding * 2;
+            int listHeight = bounds.Height - _listTopOffset - PanelPadding;
+
+            return listWidth > 0 &&
+                   listHeight > 0 &&
+                   x >= listX &&
+                   x < (long)listX + listWidth &&
+                   y >= listY &&
+                   y < (long)listY + listHeight
+                ? (int)WheelDisposition.Deliver
+                : (int)WheelDisposition.PassThrough;
+        }
+
+        private int DrawFilterModeAndSearch(int x, int y, int width, bool searchClickAway)
         {
             var layout = new StackLayout(x, y, width, spacing: SectionSpacing);
 
-            layout.SectionHeader("Filter Mode");
-
             int buttonsRowY = layout.Advance(ControlHeight);
-            int thirdWidth = (width - 12) / 3;
+            int thirdWidth = Math.Max(0, (width - 12) / 3);
 
             DrawFilterModeButton(
                 layout.X,
@@ -265,7 +461,7 @@ namespace SmartAmmoSwitch
                 });
 
             int lastButtonX = layout.X + (thirdWidth + 6) * 2;
-            int lastButtonWidth = width - (thirdWidth * 2) - 12;
+            int lastButtonWidth = Math.Max(0, width - thirdWidth * 2 - 12);
 
             DrawFilterModeButton(
                 lastButtonX,
@@ -280,9 +476,23 @@ namespace SmartAmmoSwitch
                     SaveCurrentSettings();
                 });
 
-            layout.Label(GetSelectedItemsLabel());
+            int searchY = layout.CurrentY;
+            string newSearch = _searchInput.Draw(layout.X, searchY, width, height: ControlHeight);
 
-            string newSearch = _searchInput.Draw(layout.X, layout.CurrentY, layout.Width);
+            if (width > 0)
+            {
+                UIRenderer.DrawRectOutline(
+                    layout.X,
+                    searchY,
+                    width,
+                    ControlHeight,
+                    _searchInput.IsFocused ? UIColors.Accent : UIColors.Border);
+            }
+
+            if (searchClickAway &&
+                _searchInput.IsFocused &&
+                !WidgetInput.IsMouseOver(layout.X, searchY, width, ControlHeight))
+                _searchInput.Unfocus();
 
             layout.Advance(ControlHeight);
 
@@ -290,55 +500,6 @@ namespace SmartAmmoSwitch
             {
                 _searchText = newSearch ?? string.Empty;
                 RebuildLists(resetScroll: true);
-            }
-
-            int actionButtonsY = layout.Advance(ControlHeight);
-            int halfWidth = (width - 6) / 2;
-
-            if (_activeTab == 0)
-            {
-                if (Button.Draw(layout.X, actionButtonsY, halfWidth, ControlHeight, "Select All Visible"))
-                {
-                    var changed = false;
-
-                    foreach (SupportedAmmoInfo item in _filteredCatalog)
-                    {
-                        if (AmmoFilterSettings.Add(item.ItemId))
-                            changed = true;
-                    }
-
-                    if (changed)
-                    {
-                        SaveCurrentSettings();
-                        RebuildLists(resetScroll: false);
-                    }
-                }
-            }
-            else
-            {
-                if (Button.Draw(layout.X, actionButtonsY, halfWidth, ControlHeight, "Clear Visible"))
-                {
-                    var changed = false;
-
-                    foreach (SupportedAmmoInfo item in _selectedItems)
-                    {
-                        if (AmmoFilterSettings.Remove(item.ItemId))
-                            changed = true;
-                    }
-
-                    if (changed)
-                    {
-                        SaveCurrentSettings();
-                        RebuildLists(resetScroll: false);
-                    }
-                }
-            }
-
-            if (Button.Draw(layout.X + halfWidth + 6, actionButtonsY, halfWidth, ControlHeight, "Clear Selected"))
-            {
-                AmmoFilterSettings.Clear();
-                SaveCurrentSettings();
-                RebuildLists(resetScroll: false);
             }
 
             return layout.CurrentY;
@@ -353,13 +514,95 @@ namespace SmartAmmoSwitch
             string tooltip,
             Action onClick)
         {
-            string buttonText = _mode == mode ? $"{label} *" : label;
+            if (width <= 0)
+                return;
 
-            if (Button.Draw(x, y, width, ControlHeight, buttonText))
+            bool active = _mode == mode;
+            int count = AmmoFilterSettings.FilteredItemIds.Count;
+            string buttonText = !active ? label :
+                mode == AmmoFilterMode.Disabled ? $"{label} ({count} saved)" : $"{label} ({count})";
+
+            if (Button.Draw(
+                    x,
+                    y,
+                    width,
+                    ControlHeight,
+                    buttonText,
+                    active ? UIColors.ItemActiveBg : UIColors.Button,
+                    active ? UIColors.ItemActiveBg : UIColors.ButtonHover,
+                    UIColors.Text))
                 onClick?.Invoke();
 
+            if (active)
+                UIRenderer.DrawRectOutline(x, y, width, ControlHeight, UIColors.Accent);
+
             if (WidgetInput.IsMouseOver(x, y, width, ControlHeight))
-                Tooltip.Set(tooltip);
+            {
+                if (mode == AmmoFilterMode.Whitelist && active && count == 0)
+                    Tooltip.Set("Whitelist is empty. Ammo switching by this mod has no allowed ammo types.");
+                else
+                    Tooltip.Set(tooltip);
+            }
+        }
+
+        private int DrawBulkActions(int x, int y, int width)
+        {
+            int clearWidth = Math.Min(120, Math.Max(0, width / 3));
+            int actionWidth = Math.Min(190, Math.Max(0, width - clearWidth - SectionSpacing));
+            int actionX = x + Math.Max(0, width - actionWidth - clearWidth - SectionSpacing);
+            int clearX = actionX + actionWidth + SectionSpacing;
+
+            if (actionWidth > 0 &&
+                Button.Draw(
+                    actionX,
+                    y,
+                    actionWidth,
+                    ControlHeight,
+                    _activeTab == 0 ? "Select results" : "Clear results"))
+            {
+                var changed = false;
+
+                if (_activeTab == 0)
+                {
+                    foreach (SupportedAmmoInfo item in _filteredCatalog)
+                    {
+                        if (AmmoFilterSettings.Add(item.ItemId))
+                            changed = true;
+                    }
+                }
+                else
+                {
+                    foreach (SupportedAmmoInfo item in _selectedItems)
+                    {
+                        if (AmmoFilterSettings.Remove(item.ItemId))
+                            changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    SaveCurrentSettings();
+                    RebuildLists(resetScroll: false);
+                }
+            }
+
+            if (clearWidth > 0 &&
+                Button.Draw(
+                    clearX,
+                    y,
+                    clearWidth,
+                    ControlHeight,
+                    "Clear all",
+                    UIColors.ItemBg,
+                    UIColors.ButtonHover,
+                    UIColors.TextDim))
+            {
+                AmmoFilterSettings.Clear();
+                SaveCurrentSettings();
+                RebuildLists(resetScroll: false);
+            }
+
+            return y + ControlHeight;
         }
 
         private int DrawMainTabs(int x, int y, int width)
@@ -380,23 +623,109 @@ namespace SmartAmmoSwitch
 
         private int DrawCategoryTabs(int x, int y, int width)
         {
-            string[] labels = _visibleCategoryTabs.Select(GetCategoryLabel).ToArray();
+            if (width <= 0)
+                return y;
 
-            int selectedIndex = _visibleCategoryTabs.IndexOf(_activeCategory);
-            if (selectedIndex < 0)
-                selectedIndex = 0;
+            int groupWidth = CategoryButtonSpacing * (_categoryOrder.Length - 1);
+            foreach (AmmoCatalogCategoryFilter category in _categoryOrder)
+                groupWidth += GetCategoryButtonWidth(category);
 
-            // ReSharper disable once RedundantArgumentDefaultValue
-            int newIndex = TabBar.Draw(x, y, width, labels, selectedIndex, height: ControlHeight);
+            int startX = x + Math.Max(0, (width - groupWidth) / 2);
+            int currentX = startX;
+            int rowY = y;
 
-            AmmoCatalogCategoryFilter newCategory = _visibleCategoryTabs[newIndex];
-            if (newCategory != _activeCategory)
+            foreach (AmmoCatalogCategoryFilter category in _categoryOrder)
             {
-                _activeCategory = newCategory;
-                RebuildLists(resetScroll: true);
+                int desiredWidth = GetCategoryButtonWidth(category);
+                int buttonWidth = Math.Min(width, desiredWidth);
+
+                if (currentX > startX && currentX + buttonWidth > x + width)
+                {
+                    startX = x;
+                    currentX = x;
+                    rowY += CategoryButtonHeight + CategoryButtonSpacing;
+                }
+
+                bool enabled = _availableCategoryTabs.Contains(category);
+                bool active = _activeCategory == category;
+                bool hovered = !WidgetInput.BlockInput &&
+                               WidgetInput.IsMouseOver(currentX, rowY, buttonWidth, CategoryButtonHeight);
+
+                UIRenderer.DrawRect(
+                    currentX,
+                    rowY,
+                    buttonWidth,
+                    CategoryButtonHeight,
+                    active ? UIColors.ItemActiveBg : enabled && hovered ? UIColors.ButtonHover : UIColors.SectionBg);
+                UIRenderer.DrawRectOutline(
+                    currentX,
+                    rowY,
+                    buttonWidth,
+                    CategoryButtonHeight,
+                    active ? UIColors.Accent : UIColors.Border);
+
+                int itemId = GetCategoryIconItemId(category);
+                if (itemId != 0 && buttonWidth >= 22)
+                {
+                    int iconX = currentX + (buttonWidth - 22) / 2;
+                    UIRenderer.DrawItem(itemId, iconX, rowY + 3, 22, 22);
+                    if (!enabled)
+                        UIRenderer.DrawRect(iconX, rowY + 3, 22, 22, UIColors.SectionBg.WithAlpha(160));
+                }
+                else if (itemId == 0)
+                {
+                    string text = TextUtil.Truncate(GetCategoryLabel(category), Math.Max(0, buttonWidth - 4));
+                    int textWidth = UIRenderer.MeasureText(text);
+                    if (textWidth <= buttonWidth - 4)
+                    {
+                        UIRenderer.DrawText(
+                            text,
+                            currentX + (buttonWidth - textWidth) / 2,
+                            rowY + 6,
+                            enabled ? UIColors.Text : UIColors.TextDim);
+                    }
+                }
+
+                if (hovered)
+                    Tooltip.Set(enabled ? GetCategoryLabel(category) : GetCategoryLabel(category) + " (no results)");
+
+                if (enabled && hovered && WidgetInput.MouseLeftClick && category != _activeCategory)
+                {
+                    WidgetInput.ConsumeClick();
+                    _activeCategory = category;
+                    RebuildLists(resetScroll: true);
+                }
+
+                currentX += buttonWidth + CategoryButtonSpacing;
             }
 
-            return y + ControlHeight;
+            return rowY + CategoryButtonHeight;
+        }
+
+        private static int GetCategoryButtonWidth(AmmoCatalogCategoryFilter category)
+        {
+            return category switch
+            {
+                AmmoCatalogCategoryFilter.All => 48,
+                AmmoCatalogCategoryFilter.Other => 66,
+                _ => CategoryIconButtonWidth
+            };
+        }
+
+        private static int GetCategoryIconItemId(AmmoCatalogCategoryFilter category)
+        {
+            return category switch
+            {
+                AmmoCatalogCategoryFilter.Arrows => ItemID.WoodenArrow,
+                AmmoCatalogCategoryFilter.Bullets => ItemID.MusketBall,
+                AmmoCatalogCategoryFilter.Rockets => ItemID.RocketI,
+                AmmoCatalogCategoryFilter.Darts => ItemID.PoisonDart,
+                AmmoCatalogCategoryFilter.Coins => ItemID.CopperCoin,
+                AmmoCatalogCategoryFilter.Flares => ItemID.Flare,
+                AmmoCatalogCategoryFilter.Sand => ItemID.SandBlock,
+                AmmoCatalogCategoryFilter.Solution => ItemID.GreenSolution,
+                _ => 0
+            };
         }
 
         private static string GetCategoryLabel(AmmoCatalogCategoryFilter category)
@@ -435,26 +764,11 @@ namespace SmartAmmoSwitch
             }
         }
 
-        private string GetSelectedItemsLabel()
-        {
-            int count = AmmoFilterSettings.FilteredItemIds.Count;
-
-            switch (_mode)
-            {
-                case AmmoFilterMode.Blacklist:
-                    return $"Blacklisted items: {count}";
-
-                case AmmoFilterMode.Whitelist:
-                    return $"Whitelisted items: {count}";
-
-                default:
-                    return $"Selected items: {count}";
-            }
-        }
-
         private void DrawListSection(int x, int y, int width, int height)
         {
-            int listHeight = Math.Max(MinListHeight, height);
+            int listHeight = Math.Max(0, height);
+            if (width <= 0 || listHeight <= 0)
+                return;
 
             if (_activeTab == 0)
                 DrawCatalogList(x, y, width, listHeight);
@@ -472,6 +786,9 @@ namespace SmartAmmoSwitch
                 int contentX = _catalogScroll.ContentX;
                 int contentY = _catalogScroll.ContentY;
                 int contentWidth = _catalogScroll.ContentWidth;
+
+                if (_filteredCatalog.Count == 0)
+                    DrawEmptyListMessage("No matching ammunition", contentX, contentY, contentWidth);
 
                 for (var i = 0; i < _filteredCatalog.Count; i++)
                 {
@@ -501,6 +818,14 @@ namespace SmartAmmoSwitch
                 int contentY = _selectedScroll.ContentY;
                 int contentWidth = _selectedScroll.ContentWidth;
 
+                if (_selectedItems.Count == 0)
+                {
+                    string emptyMessage = AmmoFilterSettings.FilteredItemIds.Count == 0
+                        ? "No ammunition selected"
+                        : "No matching selected ammunition";
+                    DrawEmptyListMessage(emptyMessage, contentX, contentY, contentWidth);
+                }
+
                 for (var i = 0; i < _selectedItems.Count; i++)
                 {
                     int itemOffsetY = i * RowHeight;
@@ -518,27 +843,45 @@ namespace SmartAmmoSwitch
             }
         }
 
+        private static void DrawEmptyListMessage(string message, int x, int y, int width)
+        {
+            string text = TextUtil.Truncate(message, Math.Max(0, width - 16));
+            if (UIRenderer.MeasureText(text) <= width - 16)
+                UIRenderer.DrawText(text, x + 8, y + 8, UIColors.TextDim);
+        }
+
         private void DrawItemRow(SupportedAmmoInfo info, int x, int y, int width)
         {
             bool isSelected = AmmoFilterSettings.Contains(info.ItemId);
             bool hover = WidgetInput.IsMouseOver(x, y, width, RowHeight);
 
             if (hover)
+            {
                 UIRenderer.DrawRect(x, y, width, RowHeight, UIColors.ItemHoverBg);
+                Tooltip.Set(info.ItemName, $"Item ID: {info.ItemId} | Category: {info.Category}");
+            }
 
-            UIRenderer.DrawItem(info.ItemId, x + 4, y + 3, 22, 22);
+            const int checkboxSize = 16;
+            const int iconSize = 22;
+            const int horizontalGap = 6;
 
-            var checkboxSize = 16;
-            var checkboxMarginRight = 8;
+            int checkboxX = x + 4;
+            int checkboxY = y + (RowHeight - checkboxSize) / 2;
+            int iconX = checkboxX + checkboxSize + horizontalGap;
+            int iconY = y + (RowHeight - iconSize) / 2;
+            int labelX = iconX + iconSize + horizontalGap;
+            int labelWidth = Math.Max(0, x + width - labelX - 4);
 
-            int checkboxX = x + width - checkboxMarginRight - checkboxSize;
-            int checkboxY = y + 6;
+            UIRenderer.DrawItem(info.ItemId, iconX, iconY, iconSize, iconSize);
 
-            var label = $"[{info.ItemId}] {info.ItemName} ({info.Category})";
-            UIRenderer.DrawText(label, x + 32, y + 6, UIColors.Text);
+            if (labelWidth > 0)
+            {
+                string label = TextUtil.Truncate(info.ItemName, labelWidth);
+                if (UIRenderer.MeasureText(label) <= labelWidth)
+                    UIRenderer.DrawText(label, labelX, y + 5, UIColors.Text);
+            }
 
             bool clicked = Checkbox.Draw(checkboxX, checkboxY, checkboxSize, isSelected);
-
             bool rowClick = !clicked && hover && WidgetInput.MouseLeftClick;
 
             if (rowClick)
@@ -567,7 +910,8 @@ namespace SmartAmmoSwitch
 
             return source.Where(x =>
                 (!string.IsNullOrWhiteSpace(x.ItemName) && x.ItemName.ToLowerInvariant().Contains(lower)) ||
-                x.ItemId.ToString().Contains(lower) || x.Category.ToString().ToLowerInvariant().Contains(lower));
+                x.ItemId.ToString().Contains(lower) ||
+                x.Category.ToString().ToLowerInvariant().Contains(lower));
         }
 
         private static IEnumerable<SupportedAmmoInfo> ApplyCategoryFilter(
@@ -606,6 +950,21 @@ namespace SmartAmmoSwitch
                 default:
                     return source;
             }
+        }
+    }
+
+    // Keep this input decision independent of Terraria/Core UI so it can be tested without the game runtime.
+    internal static class FilterEditorClickAwayPolicy
+    {
+        internal static bool IsEligiblePress(
+            bool hasTextFocus,
+            bool inputBlocked,
+            bool mouseLeftClick,
+            bool mouseLeftDown,
+            bool wasMouseLeftDown)
+        {
+            // The normal click signal can be consumed by another widget before this panel receives it.
+            return !inputBlocked && hasTextFocus && (mouseLeftClick || (mouseLeftDown && !wasMouseLeftDown));
         }
     }
 }

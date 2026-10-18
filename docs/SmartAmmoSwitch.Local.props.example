@@ -1,11 +1,13 @@
 <Project>
     <PropertyGroup>
-        <!--
-        Set this to the root directory of your local Terraria installation.
-        Example:
-        E:\SteamLibrary\steamapps\common\Terraria
-        -->
+        <!-- Set this to the root directory of your local Terraria installation. -->
         <TerrariaDirectory>C:\Path\To\Terraria</TerrariaDirectory>
+
+        <!--
+        Path to Microsoft.Xna.Framework.dll required for the local build.
+        This is a common Windows GAC location; update it if your installation differs.
+        -->
+        <XnaFrameworkDll>C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.dll</XnaFrameworkDll>
 
         <!--
         Path to Microsoft.Xna.Framework.Game.dll used to compile against Terraria.
