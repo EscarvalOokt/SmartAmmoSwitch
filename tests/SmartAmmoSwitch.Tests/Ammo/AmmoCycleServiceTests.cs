@@ -6,6 +6,34 @@ namespace SmartAmmoSwitch.Tests.Ammo
     [TestFixture]
     public sealed class AmmoCycleServiceTests
     {
+        [TestCase(true, 102)]
+        [TestCase(false, 104)]
+        public void BlockedActiveType_EntersAllowedCycleFromTheRequestedEnd(bool forward, int expectedFirstType)
+        {
+            var cycle = new AmmoCycleService();
+            cycle.Synchronize(1, 1, new List<int> { 102, 103, 104 }, 101, 123, Layout((55, 102), (56, 103), (57, 104)));
+
+            Assert.That(cycle.CurrentIndex, Is.EqualTo(-1));
+            CycleDirection direction = forward ? CycleDirection.Forward : CycleDirection.Backward;
+            Assert.That(cycle.SelectNext(direction), Is.EqualTo(expectedFirstType));
+            Assert.That(cycle.SelectNext(direction), Is.EqualTo(103));
+        }
+
+        [Test]
+        public void ClearingCycle_RebuildsOrderFromNewCharactersSlots()
+        {
+            var cycle = new AmmoCycleService();
+            cycle.Synchronize(1, 1, new List<int> { 101, 102, 103 }, 101, 123, Layout((54, 101), (55, 102), (56, 103)));
+            Assert.That(cycle.SelectNext(CycleDirection.Forward), Is.EqualTo(102));
+            List<AmmoLayoutEntry> layout = Layout((54, 102), (55, 101), (56, 103));
+            cycle.RememberLayout(layout);
+
+            cycle.Clear();
+            cycle.Synchronize(1, 1, new List<int> { 102, 101, 103 }, 102, 123, layout);
+
+            Assert.That(cycle.SelectNext(CycleDirection.Forward), Is.EqualTo(101));
+        }
+
         [Test]
         public void AdditionalStackOfExistingType_PreservesCycleAfterSwitch()
         {

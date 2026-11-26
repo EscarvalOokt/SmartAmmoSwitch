@@ -4,12 +4,17 @@ namespace SmartAmmoSwitch
 {
     internal sealed class AmmoCycleService
     {
-        private readonly AmmoCycleState _state = new AmmoCycleState();
+        private AmmoCycleState _state = new AmmoCycleState();
 
         public int CurrentIndex => _state.CurrentIndex;
         public int Total => _state.OrderedTypes.Count;
         public int InventorySignature => _state.InventorySignature;
         public IReadOnlyList<int> OrderedTypes => _state.OrderedTypes;
+
+        public void Clear()
+        {
+            _state = new AmmoCycleState();
+        }
 
         public void Reset(
             int weaponType,
@@ -26,8 +31,6 @@ namespace SmartAmmoSwitch
             _state.LastCandidateLayout = new List<AmmoLayoutEntry>(currentLayout);
 
             _state.CurrentIndex = _state.OrderedTypes.IndexOf(currentType);
-            if (_state.CurrentIndex < 0)
-                _state.CurrentIndex = 0;
         }
 
         public bool IsStateValid(int weaponType, int useAmmo)
@@ -106,17 +109,7 @@ namespace SmartAmmoSwitch
                     _state.OrderedTypes.Add(type);
             }
 
-            if (_state.OrderedTypes.Count == 0)
-            {
-                _state.CurrentIndex = -1;
-            }
-            else
-            {
-                _state.CurrentIndex = _state.OrderedTypes.IndexOf(currentType);
-                if (_state.CurrentIndex < 0)
-                    _state.CurrentIndex = 0;
-            }
-
+            _state.CurrentIndex = _state.OrderedTypes.IndexOf(currentType);
             _state.InventorySignature = signature;
             _state.LastCandidateLayout = new List<AmmoLayoutEntry>(currentLayout);
         }
@@ -157,12 +150,10 @@ namespace SmartAmmoSwitch
             if (count == 0)
                 return -1;
 
-            if (_state.CurrentIndex < 0)
-                _state.CurrentIndex = 0;
-
-            _state.CurrentIndex = direction == CycleDirection.Forward
-                ? (_state.CurrentIndex + 1) % count
-                : (_state.CurrentIndex - 1 + count) % count;
+            if (direction == CycleDirection.Forward)
+                _state.CurrentIndex = (_state.CurrentIndex + 1) % count;
+            else
+                _state.CurrentIndex = _state.CurrentIndex <= 0 ? count - 1 : _state.CurrentIndex - 1;
 
             return _state.OrderedTypes[_state.CurrentIndex];
         }

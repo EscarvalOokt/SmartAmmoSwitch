@@ -1,102 +1,60 @@
-# SmartAmmoSwitch architecture
+# Smart Ammo Switch architecture
 
-This document records the current production architecture and implementation boundaries of SmartAmmoSwitch 1.2.1.
+This document describes the runtime behavior of Smart Ammo Switch and the responsibilities of its components.
 
 ## Sources of truth
 
-1. The installed Terraria and TerrariaModder runtime define external runtime behavior and API contracts.
-2. The production source defines behavior implemented in the mod.
-3. This document records accepted SmartAmmoSwitch architecture decisions supported by that source.
-4. [Testing policy](testing.md) defines the boundary between automated checks and in-game acceptance.
+- The [manifest](../mod/manifest.json) declares runtime requirements. The [production project](../src/SmartAmmoSwitch/SmartAmmoSwitch.csproj) defines the build target and references.
+- Terraria and TerrariaModder define the external APIs. The production source defines how the mod uses them, and the [configuration model](../src/SmartAmmoSwitch/SmartAmmoSwitchConfig.cs) defines its settings.
+- The [development guide](development.md) covers local setup, build, and test commands. The [testing policy](testing.md) describes automated coverage and in-game checks.
 
-When documentation and production code disagree about current project behavior, production code is the source of truth until the discrepancy is resolved explicitly.
+## Runtime baseline
 
-## Runtime baseline and dependencies
+- The manifest for version `1.3.0` specifies Terraria `1.4.6` and TerrariaModder Core `>=0.4.3`.
+- The production project targets .NET Framework 4.8.
+- TerrariaModder Core provides lifecycle callbacks, configuration, keybind registration, logging, and UI services.
+- The production project imports TerrariaWindowKit sources with Core integration enabled. The build uses the revision present in the sibling checkout and compiles it into `SmartAmmoSwitch.dll`. The imported toolkit uses Harmony.
 
-The current production version is **SmartAmmoSwitch 1.2.1**, targeting Terraria **1.4.5** and .NET Framework **4.8**. The manifest declares TerrariaModder Core **`>=0.4.1`**.
+## Runtime flow
 
-In-game validation was performed using Core **0.4.2**, including interaction with an independent TerrariaWindowKit consumer. Multiplayer behavior is unverified.
+1. A Next Ammo or Prev Ammo keybind calls `SmartAmmoSwitchMod.Switch`. `AmmoScanner` scans the configured slots. The mod keeps stacks compatible with the held weapon and allowed by `AmmoFilterPipeline`. Switching requires at least two distinct allowed item types.
+2. The mod asks Terraria which stack is active, independently of the filter. In `AmmoSlotsOnly` mode, it stops before advancing the cycle or moving a stack if the active slot falls outside slots 54–57. Otherwise, `AmmoSwitchContext` records the active slot and type, filtered candidates, and current layout.
+3. `AmmoCycleService.Synchronize` updates the type order and selects the starting index. The mod advances in the requested direction and picks a stack of the selected type.
+4. The mod swaps that stack with the one in the recorded active slot and asks Terraria for the active ammo again. If the selector fails or returns another type, the mod reverses the exchange. A successful switch records the resulting candidate layout for the next keypress.
 
-TerrariaWindowKit **1.1.0** is integrated as source-only code through `TerrariaWindowKit.Source.projitems` in a sibling checkout. No separate TerrariaWindowKit DLL is produced or required. The relative import selects files from that checkout but does not itself pin its Git revision.
+## Ammo selection and cycle order
 
-The production build references Terraria, TerrariaModder Core, Harmony (`0Harmony.dll`), and the required XNA assemblies. SmartAmmoSwitch does not call Harmony APIs directly; the reference is required by the imported toolkit. Machine-specific paths belong in the ignored `src/SmartAmmoSwitch.Local.props`, with a portable example in `docs/SmartAmmoSwitch.Local.props.example`.
+`AmmoSlotPriority` ranks both the initial type order and the choice among stacks of the same type. Regular ammunition prioritizes ammo slots 54–57, followed by main inventory slots 0–49. Coins prioritize coin slots 50–53, then slots 0–49. The search mode restricts which of these slots are scanned.
 
-## Project boundaries
+`GetPreferredAmmoSlot` calls Terraria's private `Player.PickAmmo_PickAmmoItem(Item)` selector through a `MethodInfo` cached at initialization. It locates the returned item in the inventory by reference identity. The lookup reads the weapon's current ammo choice in Terraria's None, AmmoSlots, FullInventory, and Random modes and leaves the cycling offset, timer, and ammunition intact. If the first lookup fails, the mod leaves the stacks in place. A stack blocked by the filter can still occupy the active slot and receive an allowed stack.
 
-- Production remains one `SmartAmmoSwitch` project and assembly.
-- TerrariaModder infrastructure owns configuration, keybind registration, logging, and mod lifecycle integration.
-- TerrariaWindowKit owns root-window state, geometry, activation, input coordination, and Escape arbitration.
-- TerrariaModder Core provides the Filter Editor's content widgets, rendering, tooltips, and UI input primitives.
-- Terraria determines the actual active ammo stack from the held weapon and its native ammo-cycling state.
-- SmartAmmoSwitch owns the allowed ammo-type cycle, filtering, inventory swaps, and the Filter Editor content, layout, and consumer-side hit tests.
-
-No parallel root-window, pin-state, or input-coordination abstraction is maintained by SmartAmmoSwitch.
-
-## Entry point and lifecycle
-
-`SmartAmmoSwitchMod : IMod, IModLifecycle` is the entry point. It resolves `SmartAmmoSwitchConfig` from the shared `ModContext`, initializes filtering and the editor, registers Next Ammo, Previous Ammo, and Open Filter UI keybinds, and processes config/world lifecycle notifications.
-
-`FilterUiController.Initialize()` prepares configuration and the Search widget. The `CoreWindowBackend` and `WindowHost` are created lazily on the UI thread when the editor is first opened, after the ammo catalog can be built. The host keeps the window registration while it is closed and reuses it for later opens.
-
-On mod unload, `SmartAmmoSwitchMod.Unload()` delegates to `FilterUiController.Unload()`. The controller attempts `WindowHost.Dispose()` before disposing `CoreWindowBackend`, then releases its references and cached UI lists. The mod clears its catalog/filter state and context. WindowKit's Core integration coordinates window closure on menu/world transitions.
-
-Individual mod unloading via `IMod.Unload()` has not been verified in game.
-
-## Configuration
-
-`SmartAmmoSwitchConfig : ModConfig` is the typed configuration model. Its schema `Version` remains **1**, independently of mod version 1.2.1.
-
-The configuration surface contains:
-
-- `ShowMessages`;
-- `SearchMode`;
-- `FilterMode`;
-- `FilteredAmmoItemIds`.
-
-Legacy keys are mapped with `FormerlySerializedAs`. `SmartAmmoSwitchMod` loads the typed configuration and `FilterUiController` persists filter mode and item IDs through the same configuration object. `AmmoFilterSettings` is the shared source of runtime filter state.
-
-## Ammo switching flow
-
-The main interaction path is:
-
-```text
-keybind
-  -> SmartAmmoSwitchMod.Switch
-  -> discover and filter candidates (AmmoScanner, AmmoFilterPipeline)
-  -> build AmmoSwitchContext with candidates and actual active ammo
-  -> AmmoCycleService.Synchronize
-  -> select next/previous ammo type
-  -> swap selected stack with the actual active slot
-  -> verify selected type is active; roll back the swap on failure
-  -> remember resulting candidate layout on success
-```
-
-`AmmoScanner` owns candidate discovery within the configured search area. `AmmoFilterPipeline` restricts the candidates available for cycling. Terraria selects the actual active ammo independently of that filter, so a blocked stack can still be the slot that must receive the selected allowed stack. `AmmoSwitchContext` carries the candidates, actual active type, and snapshots prepared for one switch operation.
-
-`AmmoSlotPriority` provides the shared slot ranking for the initial type order and target-stack selection. Regular ammunition prioritizes ammo slots **54-57**, followed by main inventory slots **0-49**. Coin ammunition prioritizes coin slots **50-53**, followed by main inventory slots **0-49**. Slots outside the corresponding ranges are excluded from candidates.
-
-`SmartAmmoSwitchMod.GetPreferredAmmoSlot` uses a `MethodInfo` cached during initialization to call Terraria's private `Player.PickAmmo_PickAmmoItem(Item)` selector. The returned item is mapped to its inventory slot by reference identity. This read-only lookup accounts for the current weapon and the saved cycling offset in the native `None`, `AmmoSlots`, `FullInventory`, and `Random` modes. It neither consumes ammo nor changes the cycling offset or timer; subsequent shots and timer expiry retain their vanilla behavior.
-
-`AmmoCycleService.Synchronize` preserves the established type order as stacks appear or disappear, removes unavailable types, and appends newly available types. Type-set changes are detected by differing inventory signatures or an exact set comparison when signatures match, so hash collisions cannot leave unavailable types in the cycle. Manual movement of a remaining type rebuilds the order from the current candidate layout; a changed weapon or ammo category, or an active type absent from the allowed cycle, also resets the state. When the actual active type remains in the cycle, synchronization anchors the current index to it, including when consuming a stack exposes another active type without changing the set of available types.
-
-The same Terraria selector determines the current type, the active slot before swapping, and the active type during verification after swapping. If the private method is unavailable, returns an invalid result, or throws, the lookup reports failure. Failure before the swap stops the operation; failed verification after it reverses the swap. There is no fallback to a fixed slot priority for active-ammo selection. The resulting candidate layout is remembered after a successful switch.
+When types appear or disappear, `AmmoCycleService` preserves the order of remaining types and appends new ones. It compares the actual type sets when inventory signatures match, so hash collisions cannot hide a change. Moving a remaining type to a new slot, changing weapon type or ammo category, or finding the active type outside the allowed cycle rebuilds the order from the current layout. If the active type is outside the cycle, Next selects the first allowed type and Prev the last. Otherwise the cycle anchors to the active type, including when consuming one stack exposes another.
 
 ## Filtering and catalog
 
-Filtering uses `IAmmoFilter` and `AmmoFilterPipeline`. The registered `ItemTypeAmmoFilter` delegates item-level policy to `AmmoFilterSettings`, supporting Disabled, Blacklist, and Whitelist. The editor and switching pipeline use the same selected item IDs; the editor persists changes through `SmartAmmoSwitchConfig`.
+`ItemTypeAmmoFilter` applies `AmmoFilterSettings` in the switching pipeline. The Filter Editor uses the same filter mode and selected item IDs. `SupportedAmmoCatalog` builds and caches the ammo metadata and `SupportedAmmoClassifier` assigns categories.
 
-`SupportedAmmoCatalog` lazily builds runtime metadata for valid ammo item IDs; `SupportedAmmoClassifier` assigns supported categories. The Filter Editor filters catalog and selected-item views by search text and category, without maintaining a second independent filter store. Bulk actions operate on the corresponding filtered result collections, not just visible scroll rows.
+Search and the active category narrow the Catalog and Selected views. The editor keeps the active category when a view becomes empty and disables its scoped bulk action until there are matches. **Clear all** applies to the entire selection.
 
 ## Filter Editor window and input
 
-`FilterUiController` creates one `WindowHost` with `CoreWindowBackend`. The window is draggable and pinnable, but not resizable. Its base size is **520 × 420 UI units**; width increases when needed to keep the complete mode labels readable. The controller supplies that calculated width as `MinimumWidth` and **420 UI units** as `MinimumHeight`. The host fits the bounds to the viewport; a viewport smaller than those minimums takes precedence. When the viewport grows again, the configured minimums restore the required content size.
+`FilterUiController` creates the `CoreWindowBackend` and `WindowHost` on the UI thread the first time the editor opens. Later opens reuse the host. Users can drag and pin the window. Its size is set by the layout, starting at 520 × 420 UI units. The controller increases the minimum width for longer mode labels, and the host fits the window into smaller viewports and restores its minimum size when space permits.
 
-`WindowHost` owns root open/close, Pin state, bounds, drag operation, activation, and Escape arbitration. The controller draws the header and close button, tests header/button pointer hits, starts drag with `BeginDrag`, and uses `CorePinButtonRenderer` for Pin/Unpin presentation. The renderer does not own pin state. Pin prevents root closing by Escape while active; closing and reopening the window resets pin.
+The controller draws the header and Pin control and handles hit testing. The host manages window activation, dragging, pin state, and Escape. A pin keeps Escape from closing the window and resets on reopening. The controller exposes Search focus to the host and handles the mouse wheel over the list viewport.
 
-The host's consumer callbacks include:
+When Search has focus, a new physical left-button press over a higher-priority Core panel releases focus before Search updates or draws. The receiving panel can handle the click and acquire text input. An outside click can also release Search focus when another editor widget has already consumed the click signal.
 
-- `Draw` — draw the Core widgets and advance the pointer operation;
-- `HasTextFocus` and `ReleaseTextFocus` — expose/release Search `TextInput` focus for Escape handling;
-- `WheelAt` — deliver wheel input to the list viewport and pass through outside it.
+## Configuration
 
-Search click-away is handled after `TextInput.Draw()`. `FilterEditorClickAwayPolicy.IsEligiblePress()` accepts a nonblocked click signal or the physical rising edge of the left mouse button while Search has focus, allowing focus release even if another widget consumed the click. `FilterUiController` tracks the preceding mouse state and checks whether the pointer is outside Search before unfocusing it. This deterministic decision is covered by project NUnit tests; actual input delivery remains a runtime acceptance concern.
+`SmartAmmoSwitchConfig` uses schema version 1 and maps legacy setting names with `FormerlySerializedAs`. `SmartAmmoSwitchMod` reads message and search preferences and loads the filter mode and selected item IDs into `AmmoFilterSettings`. Unrecognized filter modes, including undefined numeric values, resolve to Disabled. The editor saves its changes through the same configuration object. The [settings reference](../README.md#settings) describes the player-facing options.
+
+## Lifecycle
+
+During initialization, `SmartAmmoSwitchMod` resolves the native ammo selector, loads the configuration, prepares the filter and editor, and registers the keybinds. On each world load it clears the previous cycle's order, index, and inventory snapshot, invalidates the ammo catalog, and refreshes the editor. Configuration changes reload the settings and refresh the editor.
+
+On mod unload the controller disposes the window host before its backend and clears its cached lists. The mod invalidates the catalog, resets the filter, and releases the configuration, selector, and context references. WindowKit coordinates window closure on menu and world transitions.
+
+## Project boundaries
+
+- Terraria determines which stack the held weapon would use. Smart Ammo Switch owns the allowed cycle, the exchange of inventory stacks, and verification of the resulting selection.
+- TerrariaModder Core supplies the widgets and rendering, and TerrariaWindowKit coordinates windows and input between mods. Smart Ammo Switch owns the editor's content, layout, search and selection behavior.

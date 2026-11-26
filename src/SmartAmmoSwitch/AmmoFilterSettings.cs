@@ -85,6 +85,15 @@ namespace SmartAmmoSwitch
             return string.Join(",", GetSortedIds());
         }
 
+        public static AmmoFilterMode ParseMode(string raw)
+        {
+            if (Enum.TryParse(raw, ignoreCase: true, out AmmoFilterMode mode) &&
+                Enum.IsDefined(typeof(AmmoFilterMode), mode))
+                return mode;
+
+            return AmmoFilterMode.Disabled;
+        }
+
         public static List<int> ParseItemIds(string raw)
         {
             var result = new List<int>();

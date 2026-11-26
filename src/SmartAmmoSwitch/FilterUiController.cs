@@ -40,12 +40,10 @@ namespace SmartAmmoSwitch
             AmmoCatalogCategoryFilter.Other
         ];
 
-        private readonly HashSet<AmmoCatalogCategoryFilter> _availableCategoryTabs =
-            new HashSet<AmmoCatalogCategoryFilter>();
-
         private readonly ScrollView _catalogScroll = new ScrollView();
+
+        private readonly FilterEditorCategories _categories = new FilterEditorCategories();
         private readonly ScrollView _selectedScroll = new ScrollView();
-        private AmmoCatalogCategoryFilter _activeCategory = AmmoCatalogCategoryFilter.All;
 
         private int _activeTab;
 
@@ -101,7 +99,6 @@ namespace SmartAmmoSwitch
                     _catalog.Clear();
                     _filteredCatalog.Clear();
                     _selectedItems.Clear();
-                    _availableCategoryTabs.Clear();
                 }
             }
         }
@@ -180,12 +177,8 @@ namespace SmartAmmoSwitch
 
         private void RebuildLists(bool resetScroll)
         {
-            RebuildAvailableCategoryTabs();
-            bool categoryChanged = !_availableCategoryTabs.Contains(_activeCategory);
-            if (categoryChanged)
-                _activeCategory = AmmoCatalogCategoryFilter.All;
-
-            IEnumerable<SupportedAmmoInfo> catalogQuery = ApplyCategoryFilter(_catalog, _activeCategory);
+            _categories.RefreshAvailable(GetCurrentCategoryTabSource());
+            IEnumerable<SupportedAmmoInfo> catalogQuery = _catalog.Where(_categories.Matches);
             catalogQuery = ApplySearchFilter(catalogQuery, _searchText);
 
             _filteredCatalog = catalogQuery.OrderBy(x => x.Category)
@@ -194,7 +187,7 @@ namespace SmartAmmoSwitch
                 .ToList();
 
             IEnumerable<SupportedAmmoInfo> selectedQuery = _catalog.Where(x => AmmoFilterSettings.Contains(x.ItemId));
-            selectedQuery = ApplyCategoryFilter(selectedQuery, _activeCategory);
+            selectedQuery = selectedQuery.Where(_categories.Matches);
             selectedQuery = ApplySearchFilter(selectedQuery, _searchText);
 
             _selectedItems = selectedQuery.OrderBy(x => x.Category)
@@ -202,46 +195,11 @@ namespace SmartAmmoSwitch
                 .ThenBy(x => x.ItemId)
                 .ToList();
 
-            if (resetScroll || categoryChanged)
+            if (resetScroll)
             {
                 _catalogScroll.ResetScroll();
                 _selectedScroll.ResetScroll();
             }
-        }
-
-        private void RebuildAvailableCategoryTabs()
-        {
-            _availableCategoryTabs.Clear();
-            _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.All);
-
-            var categories = new HashSet<SupportedAmmoCategory>(GetCurrentCategoryTabSource().Select(x => x.Category));
-
-            if (categories.Contains(SupportedAmmoCategory.Arrows))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Arrows);
-
-            if (categories.Contains(SupportedAmmoCategory.Bullets))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Bullets);
-
-            if (categories.Contains(SupportedAmmoCategory.Rockets))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Rockets);
-
-            if (categories.Contains(SupportedAmmoCategory.Darts))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Darts);
-
-            if (categories.Contains(SupportedAmmoCategory.Coins))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Coins);
-
-            if (categories.Contains(SupportedAmmoCategory.Flares))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Flares);
-
-            if (categories.Contains(SupportedAmmoCategory.Sand))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Sand);
-
-            if (categories.Contains(SupportedAmmoCategory.Solution))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Solution);
-
-            if (categories.Contains(SupportedAmmoCategory.Other))
-                _availableCategoryTabs.Add(AmmoCatalogCategoryFilter.Other);
         }
 
         private IEnumerable<SupportedAmmoInfo> GetCurrentCategoryTabSource()
@@ -278,9 +236,14 @@ namespace SmartAmmoSwitch
             int mouseX = WidgetInput.MouseX;
             int mouseY = WidgetInput.MouseY;
             bool mouseLeftDown = UIRenderer.MouseLeft;
+            bool hasSearchFocus = _searchInput?.IsFocused == true;
+            bool higherPanelAtPointer = hasSearchFocus &&
+                                        WidgetInput.BlockInput &&
+                                        UIRenderer.ShouldBlockForHigherPriorityPanel(window.Id);
             bool searchClickAway = FilterEditorClickAwayPolicy.IsEligiblePress(
-                _searchInput?.IsFocused == true,
+                hasSearchFocus,
                 WidgetInput.BlockInput,
+                higherPanelAtPointer,
                 WidgetInput.MouseLeftClick,
                 mouseLeftDown,
                 _wasMouseLeftDown);
@@ -372,8 +335,6 @@ namespace SmartAmmoSwitch
                 window.Close();
                 return;
             }
-
-            _searchInput?.Update();
 
             try
             {
@@ -477,6 +438,12 @@ namespace SmartAmmoSwitch
                 });
 
             int searchY = layout.CurrentY;
+            // A higher panel blocks this hit test even when it covers the search box.
+            // Release Core's shared text input before that panel handles the same press.
+            if (searchClickAway && !WidgetInput.IsMouseOver(layout.X, searchY, width, ControlHeight))
+                _searchInput.Unfocus();
+
+            _searchInput.Update();
             string newSearch = _searchInput.Draw(layout.X, searchY, width, height: ControlHeight);
 
             if (width > 0)
@@ -488,11 +455,6 @@ namespace SmartAmmoSwitch
                     ControlHeight,
                     _searchInput.IsFocused ? UIColors.Accent : UIColors.Border);
             }
-
-            if (searchClickAway &&
-                _searchInput.IsFocused &&
-                !WidgetInput.IsMouseOver(layout.X, searchY, width, ControlHeight))
-                _searchInput.Unfocus();
 
             layout.Advance(ControlHeight);
 
@@ -551,6 +513,7 @@ namespace SmartAmmoSwitch
             int actionWidth = Math.Min(190, Math.Max(0, width - clearWidth - SectionSpacing));
             int actionX = x + Math.Max(0, width - actionWidth - clearWidth - SectionSpacing);
             int clearX = actionX + actionWidth + SectionSpacing;
+            bool hasResults = (_activeTab == 0 ? _filteredCatalog : _selectedItems).Count > 0;
 
             if (actionWidth > 0 &&
                 Button.Draw(
@@ -558,7 +521,11 @@ namespace SmartAmmoSwitch
                     y,
                     actionWidth,
                     ControlHeight,
-                    _activeTab == 0 ? "Select results" : "Clear results"))
+                    _activeTab == 0 ? "Select results" : "Clear results",
+                    hasResults ? UIColors.Button : UIColors.SectionBg,
+                    hasResults ? UIColors.ButtonHover : UIColors.SectionBg,
+                    hasResults ? UIColors.TextDim : UIColors.TextHint) &&
+                hasResults)
             {
                 var changed = false;
 
@@ -646,8 +613,8 @@ namespace SmartAmmoSwitch
                     rowY += CategoryButtonHeight + CategoryButtonSpacing;
                 }
 
-                bool enabled = _availableCategoryTabs.Contains(category);
-                bool active = _activeCategory == category;
+                bool enabled = _categories.IsAvailable(category);
+                bool active = _categories.Active == category;
                 bool hovered = !WidgetInput.BlockInput &&
                                WidgetInput.IsMouseOver(currentX, rowY, buttonWidth, CategoryButtonHeight);
 
@@ -689,10 +656,10 @@ namespace SmartAmmoSwitch
                 if (hovered)
                     Tooltip.Set(enabled ? GetCategoryLabel(category) : GetCategoryLabel(category) + " (no results)");
 
-                if (enabled && hovered && WidgetInput.MouseLeftClick && category != _activeCategory)
+                if (enabled && hovered && WidgetInput.MouseLeftClick && !active)
                 {
                     WidgetInput.ConsumeClick();
-                    _activeCategory = category;
+                    _categories.Active = category;
                     RebuildLists(resetScroll: true);
                 }
 
@@ -913,43 +880,45 @@ namespace SmartAmmoSwitch
                 x.ItemId.ToString().Contains(lower) ||
                 x.Category.ToString().ToLowerInvariant().Contains(lower));
         }
+    }
 
-        private static IEnumerable<SupportedAmmoInfo> ApplyCategoryFilter(
-            IEnumerable<SupportedAmmoInfo> source,
-            AmmoCatalogCategoryFilter category)
+    internal sealed class FilterEditorCategories
+    {
+        private readonly HashSet<AmmoCatalogCategoryFilter> _available = new HashSet<AmmoCatalogCategoryFilter>();
+
+        internal AmmoCatalogCategoryFilter Active { get; set; } = AmmoCatalogCategoryFilter.All;
+
+        internal void RefreshAvailable(IEnumerable<SupportedAmmoInfo> results)
         {
-            switch (category)
+            _available.Clear();
+            foreach (SupportedAmmoInfo item in results)
+                _available.Add(GetCategoryFilter(item.Category));
+        }
+
+        internal bool IsAvailable(AmmoCatalogCategoryFilter category)
+        {
+            return category == AmmoCatalogCategoryFilter.All || category == Active || _available.Contains(category);
+        }
+
+        internal bool Matches(SupportedAmmoInfo item)
+        {
+            return Active == AmmoCatalogCategoryFilter.All || Active == GetCategoryFilter(item.Category);
+        }
+
+        private static AmmoCatalogCategoryFilter GetCategoryFilter(SupportedAmmoCategory category)
+        {
+            return category switch
             {
-                case AmmoCatalogCategoryFilter.Arrows:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Arrows);
-
-                case AmmoCatalogCategoryFilter.Bullets:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Bullets);
-
-                case AmmoCatalogCategoryFilter.Rockets:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Rockets);
-
-                case AmmoCatalogCategoryFilter.Darts:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Darts);
-
-                case AmmoCatalogCategoryFilter.Coins:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Coins);
-
-                case AmmoCatalogCategoryFilter.Flares:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Flares);
-
-                case AmmoCatalogCategoryFilter.Sand:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Sand);
-
-                case AmmoCatalogCategoryFilter.Solution:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Solution);
-
-                case AmmoCatalogCategoryFilter.Other:
-                    return source.Where(x => x.Category == SupportedAmmoCategory.Other);
-
-                default:
-                    return source;
-            }
+                SupportedAmmoCategory.Arrows => AmmoCatalogCategoryFilter.Arrows,
+                SupportedAmmoCategory.Bullets => AmmoCatalogCategoryFilter.Bullets,
+                SupportedAmmoCategory.Rockets => AmmoCatalogCategoryFilter.Rockets,
+                SupportedAmmoCategory.Darts => AmmoCatalogCategoryFilter.Darts,
+                SupportedAmmoCategory.Coins => AmmoCatalogCategoryFilter.Coins,
+                SupportedAmmoCategory.Flares => AmmoCatalogCategoryFilter.Flares,
+                SupportedAmmoCategory.Sand => AmmoCatalogCategoryFilter.Sand,
+                SupportedAmmoCategory.Solution => AmmoCatalogCategoryFilter.Solution,
+                _ => AmmoCatalogCategoryFilter.Other
+            };
         }
     }
 
@@ -959,12 +928,19 @@ namespace SmartAmmoSwitch
         internal static bool IsEligiblePress(
             bool hasTextFocus,
             bool inputBlocked,
+            bool higherPanelAtPointer,
             bool mouseLeftClick,
             bool mouseLeftDown,
             bool wasMouseLeftDown)
         {
-            // The normal click signal can be consumed by another widget before this panel receives it.
-            return !inputBlocked && hasTextFocus && (mouseLeftClick || (mouseLeftDown && !wasMouseLeftDown));
+            if (!hasTextFocus)
+                return false;
+
+            bool justPressed = mouseLeftDown && !wasMouseLeftDown;
+            if (inputBlocked)
+                return higherPanelAtPointer && justPressed;
+
+            return mouseLeftClick || justPressed;
         }
     }
 }

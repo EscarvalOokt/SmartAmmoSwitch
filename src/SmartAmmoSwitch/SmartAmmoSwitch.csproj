@@ -9,7 +9,7 @@
         <ImplicitUsings>disable</ImplicitUsings>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-        <Version>1.2.1</Version>
+        <Version>1.3.0</Version>
         <TerrariaWindowKitIncludeCore>true</TerrariaWindowKitIncludeCore>
     </PropertyGroup>
 

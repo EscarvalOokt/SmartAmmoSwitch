@@ -1,24 +1,25 @@
 <Project>
+    <!-- Copy this file to src/SmartAmmoSwitch.Local.props. -->
     <PropertyGroup>
-        <!-- Set this to the root directory of your local Terraria installation. -->
+        <!-- Set TerrariaDirectory to the folder containing Terraria.exe. -->
         <TerrariaDirectory>C:\Path\To\Terraria</TerrariaDirectory>
 
         <!--
-        Path to Microsoft.Xna.Framework.dll required for the local build.
-        This is a common Windows GAC location; update it if your installation differs.
+        TerrariaWindowKit source-only Core integration requires the XNA Framework reference.
+        This is the common Windows GAC location; update it if your installation differs.
         -->
         <XnaFrameworkDll>C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.dll</XnaFrameworkDll>
 
         <!--
-        Path to Microsoft.Xna.Framework.Game.dll used to compile against Terraria.
-        This is a common Windows GAC location; update it if your installation differs.
+        Building the mod also requires the XNA Framework Game reference.
+        This is the common Windows GAC location; update it if your installation differs.
         -->
         <XnaFrameworkGameDll>C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework.Game\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.Game.dll</XnaFrameworkGameDll>
 
         <!-- Enable automatic deployment after a successful build when desired. -->
         <DeployToGame>false</DeployToGame>
 
-        <!-- Development deployment directory used when DeployToGame is true. -->
+        <!-- The project derives this path from TerrariaDirectory. Change it only to deploy to a different folder. -->
         <TerrariaModDirectory>$(TerrariaDirectory)\TerrariaModder\mods\smart-ammo-switch</TerrariaModDirectory>
     </PropertyGroup>
 </Project>

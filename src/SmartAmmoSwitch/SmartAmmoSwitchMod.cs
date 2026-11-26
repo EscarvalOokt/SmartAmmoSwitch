@@ -14,7 +14,7 @@ namespace SmartAmmoSwitch
     {
         public const string ModId = "smart-ammo-switch";
         public const string ModName = "Smart Ammo Switch";
-        public const string ModVersion = "1.2.1";
+        public const string ModVersion = "1.3.0";
 
         private const string NextAmmoKey = "X";
         private const string PrevAmmoKey = "Z";
@@ -105,6 +105,7 @@ namespace SmartAmmoSwitch
 
         public void OnWorldLoad()
         {
+            _cycle.Clear();
             SupportedAmmoCatalog.Invalidate();
             _filterUi?.RefreshFromConfig();
         }
@@ -151,21 +152,10 @@ namespace SmartAmmoSwitch
             string filterModeRaw = _config.FilterMode ?? "Disabled";
             string filteredItemIdsRaw = _config.FilteredAmmoItemIds ?? string.Empty;
 
-            AmmoFilterMode filterMode = ParseAmmoFilterMode(filterModeRaw);
+            AmmoFilterMode filterMode = AmmoFilterSettings.ParseMode(filterModeRaw);
             List<int> parsedIds = AmmoFilterSettings.ParseItemIds(filteredItemIdsRaw);
 
             AmmoFilterSettings.Update(filterMode, parsedIds);
-        }
-
-        private static AmmoFilterMode ParseAmmoFilterMode(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-                return AmmoFilterMode.Disabled;
-
-            if (Enum.TryParse(raw, ignoreCase: true, out AmmoFilterMode result))
-                return result;
-
-            return AmmoFilterMode.Disabled;
         }
 
         private void OnOpenFilterUiKeyPressed()
@@ -192,7 +182,7 @@ namespace SmartAmmoSwitch
                     return;
                 }
 
-                if (!TryPerformSwap(player, weapon, switchContext.UseAmmo, nextType, out Item activeItem))
+                if (!TryPerformSwap(player, weapon, switchContext, nextType, out Item activeItem))
                     return;
 
                 ShowMessage($"[{_cycle.CurrentIndex + 1}/{_cycle.Total}] {activeItem.Name}", 150, 200, 255);
@@ -237,14 +227,25 @@ namespace SmartAmmoSwitch
                 return false;
             }
 
-            int signature = AmmoUtils.BuildInventorySignature(candidates);
-            int currentType = GetActiveAmmoType(player, weapon);
-            if (currentType == -1)
+            int activeSlot = GetPreferredAmmoSlot(player, weapon);
+            if (activeSlot == -1)
             {
                 ShowMessage("Unable to determine active ammo", 255, 80, 80);
                 return false;
             }
 
+            if (_mode == AmmoSearchMode.AmmoSlotsOnly && activeSlot is < 54 or > 57)
+            {
+                ShowMessage(
+                    "Active ammo is outside the ammo slots. Enable whole-inventory search to switch it.",
+                    255,
+                    180,
+                    80);
+                return false;
+            }
+
+            int currentType = player.inventory[activeSlot].type;
+            int signature = AmmoUtils.BuildInventorySignature(candidates);
             List<AmmoLayoutEntry> currentLayout = AmmoUtils.BuildCandidateLayout(candidates);
 
             switchContext = new AmmoSwitchContext(
@@ -252,6 +253,7 @@ namespace SmartAmmoSwitch
                 candidates,
                 orderedTypes,
                 signature,
+                activeSlot,
                 currentType,
                 currentLayout);
 
@@ -269,16 +271,19 @@ namespace SmartAmmoSwitch
                 context.CurrentLayout);
         }
 
-        private bool TryPerformSwap(Player player, Item weapon, int useAmmo, int nextType, out Item activeItem)
+        private bool TryPerformSwap(
+            Player player,
+            Item weapon,
+            AmmoSwitchContext context,
+            int nextType,
+            out Item activeItem)
         {
             activeItem = null;
 
-            List<AmmoCandidate> candidates = GetFilteredAmmoCandidates(player, weapon, useAmmo);
+            int activeSlot = context.ActiveSlot;
+            int targetSlot = PickSlotForType(context.Candidates, nextType, context.UseAmmo);
 
-            int activeSlot = GetPreferredAmmoSlot(player, weapon);
-            int targetSlot = PickSlotForType(candidates, nextType, useAmmo);
-
-            if (activeSlot == -1 || targetSlot == -1)
+            if (targetSlot == -1)
             {
                 ShowMessage("No compatible ammo", 255, 80, 80);
                 return false;
@@ -297,7 +302,7 @@ namespace SmartAmmoSwitch
                 return false;
             }
 
-            List<AmmoCandidate> updatedCandidates = GetFilteredAmmoCandidates(player, weapon, useAmmo);
+            List<AmmoCandidate> updatedCandidates = GetFilteredAmmoCandidates(player, weapon, context.UseAmmo);
             _cycle.RememberLayout(AmmoUtils.BuildCandidateLayout(updatedCandidates));
 
             activeItem = player.inventory[newActiveSlot];
@@ -357,15 +362,6 @@ namespace SmartAmmoSwitch
             }
 
             return -1;
-        }
-
-        private int GetActiveAmmoType(Player player, Item weapon)
-        {
-            int slot = GetPreferredAmmoSlot(player, weapon);
-            if (slot == -1)
-                return -1;
-
-            return player.inventory[slot].type;
         }
 
         private AmmoSearchMode GetSearchModeConfig()
